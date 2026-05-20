@@ -18,8 +18,6 @@ multiple sliced files into a single G-code that prints, cools, sweeps the
 part off the bed with the nozzle head, and starts the next print —
 automatically.
 
-> 한국어 README: [README.ko.md](README.ko.md)
-
 ---
 
 ## How it works

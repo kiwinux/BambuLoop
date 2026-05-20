@@ -1,19 +1,21 @@
 # BambuLoop
 
+> English README: [README.md](README.md)
+
+![Screenshot Image](./images/screen_ko.png)
+
 <details>
-<summary>프린팅 데모 보기</summary>
+<summary>실제 프린팅 데모 GIF 보기</summary>
 
 ![Printing GIF Image](./images/print.gif)
 
 </details>
 
-**BambuLoop은 BambuLab H2S의 반복 인쇄를 위한 자동 프린팅 팜 웹 도구 입니다**
+### **BambuLoop은 BambuLab H2S의 반복 인쇄를 위한 자동 프린팅 팜 웹 도구 입니다**
 
 같은 모델 (또는 다른 여러 모델) 을 사람이 프린터를 만지지 않고 스스로 제거하고 계속 반복 인쇄합니다.
 BambuLoop은 슬라이싱된 파일 여러 개를 하나의 G-code로 합쳐서, 인쇄 → 냉각 →
 헤드로 인쇄물 스윕&분리 → 다음 인쇄를 자동으로 반복합니다.
-
-> English README: [README.md](README.md)
 
 ---
 
