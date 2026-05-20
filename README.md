@@ -40,7 +40,7 @@ off the bed.
 For automatic ejection to work reliably, a **cold-release** build plate is
 recommended.
 
-**[CryoNix Cold Build Plate](https://ko.aliexpress.com/item/1005009240815983.html)** is recommended:
+**[CryoNix Cold Build Plate](https://aliexpress.com/item/1005009240815983.html)** is recommended:
 
 - Smooth PUR coating — parts release on their own as the bed cools
 - No tilting or scraping needed — the nozzle just gently nudges the part off
