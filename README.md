@@ -1,6 +1,16 @@
 # BambuLoop
+> 한국어 README: [README.ko.md](README.ko.md)
 
-**BambuLoop is a web-based print farm tool for automated repeat printing on the Bambu Lab H2S.**
+![Screenshot Image](./images/screen.png)
+
+<details>
+<summary>Click here to show real printing demo GIF</summary>
+
+![Printing GIF Image](./images/print.gif)
+
+</details>
+
+### **BambuLoop is a web-based print farm tool for automated repeat printing on the Bambu Lab H2S.**
 
 Print the same model (or several different ones) over and over — the printer
 ejects each part by itself, no human intervention needed. BambuLoop combines
