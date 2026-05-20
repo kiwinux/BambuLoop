@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# BambuLoop runtime directories
+uploads/
+outputs/
+*.gcode
+*.3mf
+!test_*.gcode
+
+# Logs
+*.log
+
+# Local config
+.env
+.env.local

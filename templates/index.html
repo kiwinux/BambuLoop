@@ -1,0 +1,3590 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BambuLoop — Bambu H2S 자동 반복 인쇄</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg-0: #0a0c0f;
+  --bg-1: #11151b;
+  --bg-2: #181d25;
+  --bg-3: #1f2630;
+  --line: #36404e;
+  --line-2: #4d5867;
+  --text: #e6ecf3;
+  --text-dim: #8b96a8;
+  --text-faint: #5c6675;
+  --accent: #ff7a2f;          /* H2S 오렌지 */
+  --accent-dim: #b85320;
+  --cyan: #4dd2ff;             /* 인디케이터 시안 */
+  --cyan-dim: #2a8db8;
+  --green: #5fcf80;
+  --red: #ff5050;
+  --yellow: #f5c451;
+
+  --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Consolas, monospace;
+  --display: 'Space Grotesk', system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--bg-0); color: var(--text); font-family: var(--mono); font-size: 13px; line-height: 1.5; }
+
+/* background grid */
+body {
+  background-image:
+    linear-gradient(rgba(255,122,47,0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,122,47,0.025) 1px, transparent 1px);
+  background-size: 32px 32px;
+  background-position: -1px -1px;
+  min-height: 100vh;
+}
+
+/* ===== HEADER ===== */
+header {
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--bg-1), var(--bg-0));
+  padding: 18px 28px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  backdrop-filter: blur(8px);
+}
+.logo {
+  display: flex; align-items: center; gap: 12px;
+  font-family: var(--display);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  font-size: 18px;
+}
+.logo-mark {
+  width: 32px; height: 32px;
+  background: var(--accent);
+  display: grid; place-items: center;
+  font-family: var(--mono);
+  font-weight: 700;
+  color: var(--bg-0);
+  font-size: 14px;
+  position: relative;
+}
+.logo-mark::after {
+  content: '';
+  position: absolute; inset: -4px;
+  border: 1px solid var(--accent);
+  opacity: 0.4;
+}
+.logo-sub {
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  margin-left: 8px;
+  border-left: 1px solid var(--line-2);
+  padding-left: 12px;
+}
+.status-bar {
+  margin-left: auto;
+  display: flex; gap: 16px; align-items: center;
+  font-size: 11px; color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+.status-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+  animation: pulse 2s infinite;
+}
+@keyframes pulse { 50% { opacity: 0.4; } }
+
+/* ===== LAYOUT ===== */
+main {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 28px;
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 24px;
+}
+@media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
+
+/* ===== PANEL ===== */
+.panel {
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  position: relative;
+}
+.panel-header {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+  display: flex; align-items: center; gap: 10px;
+}
+.panel-tag {
+  font-size: 10px; color: var(--accent); font-weight: 700;
+  letter-spacing: 0.2em; text-transform: uppercase;
+  padding: 2px 6px; border: 1px solid var(--accent-dim);
+}
+.panel-title {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+}
+.panel-body { padding: 18px; }
+
+/* ===== UPLOAD AREA ===== */
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 140px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--line-2);
+  background: var(--bg-2);
+  padding: 36px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.15s;
+  position: relative;
+}
+.dropzone:hover, .dropzone.drag {
+  border-color: var(--accent);
+  background: rgba(255, 122, 47, 0.04);
+}
+.dropzone-icon {
+  font-size: 32px; color: var(--accent);
+  margin-bottom: 12px;
+  font-family: var(--mono); font-weight: 700;
+  line-height: 1;
+}
+.dropzone-text { color: var(--text-dim); font-size: 12px; line-height: 1.6; }
+.dropzone-text strong { color: var(--text); font-weight: 600; }
+.dropzone input { display: none; }
+
+/* ===== JOB LIST ===== */
+.job-list {
+  margin-top: 18px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.job-item {
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--cyan);
+  padding: 14px 16px;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 14px;
+  align-items: center;
+}
+.job-info { min-width: 0; }
+.job-name {
+  font-weight: 600; font-size: 13px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+.job-meta {
+  font-size: 10px; color: var(--text-dim);
+  display: flex; gap: 10px; flex-wrap: wrap;
+}
+.job-meta span { display: inline-flex; align-items: center; gap: 4px; }
+.job-meta .sep { color: var(--text-faint); }
+.tag {
+  display: inline-block;
+  padding: 1px 6px;
+  background: var(--bg-3);
+  border: 1px solid var(--line-2);
+  font-size: 10px; color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.tag.cyan { color: var(--cyan); border-color: var(--cyan-dim); }
+.tag.orange { color: var(--accent); border-color: var(--accent-dim); }
+.tag.yellow { color: var(--yellow); border-color: rgba(245,196,81,0.3); }
+.tag.purple { color: #c896ff; border-color: rgba(200,150,255,0.3); }
+
+.count-input {
+  display: flex; align-items: center;
+  background: var(--bg-3);
+  border: 1px solid var(--line-2);
+}
+.count-input button {
+  background: none; border: none; color: var(--text-dim);
+  width: 28px; height: 32px; cursor: pointer; font-family: var(--mono); font-size: 14px;
+}
+.count-input button:hover { color: var(--accent); background: rgba(255,122,47,0.08); }
+.count-input input {
+  width: 44px; text-align: center;
+  background: none; border: none; color: var(--text);
+  font-family: var(--mono); font-size: 13px; font-weight: 600;
+  border-left: 1px solid var(--line); border-right: 1px solid var(--line);
+  height: 32px;
+}
+.count-input input:focus { outline: 1px solid var(--accent); }
+.btn-icon {
+  background: none; border: 1px solid var(--line-2); color: var(--text-dim);
+  width: 32px; height: 32px; cursor: pointer; font-family: var(--mono);
+  display: grid; place-items: center;
+}
+.btn-icon:hover { border-color: var(--red); color: var(--red); background: rgba(255,80,80,0.08); }
+
+.empty-state {
+  padding: 24px; text-align: center;
+  color: var(--text-faint); font-size: 12px;
+  border: 1px dashed var(--line); margin-top: 18px;
+}
+
+/* ===== SETTINGS ===== */
+.settings-section {
+  border-bottom: 1px solid var(--line);
+}
+.settings-section:last-child { border-bottom: none; }
+.settings-header {
+  padding: 12px 18px; cursor: pointer;
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 12px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--text);
+  user-select: none;
+}
+.settings-header:hover { background: var(--bg-2); }
+.settings-header .chev { color: var(--accent); transition: transform 0.2s; font-size: 10px; }
+.settings-section.collapsed .chev { transform: rotate(-90deg); }
+.settings-body { padding: 6px 18px 18px 18px; display: grid; gap: 12px; }
+.settings-section.collapsed .settings-body { display: none; }
+
+.field { display: grid; gap: 4px; }
+.field-row { display: grid; grid-template-columns: 1fr 100px; gap: 12px; align-items: center; }
+.fan-row {
+  display: grid; grid-template-columns: auto 1fr 70px auto; gap: 8px;
+  align-items: center; padding: 8px 10px;
+  background: var(--bg-3); border: 1px solid var(--line);
+}
+.fan-row .fan-pct { font-size: 11px; color: var(--text-dim); }
+
+/* info tooltip (ⓘ icon) */
+.info-tip {
+  display: inline-block;
+  width: 14px; height: 14px;
+  margin-left: 4px;
+  border-radius: 50%;
+  background: var(--bg-3);
+  color: var(--text-dim);
+  font-size: 10px;
+  text-align: center;
+  line-height: 14px;
+  cursor: help;
+  border: 1px solid var(--line);
+  position: relative;
+  vertical-align: middle;
+  font-family: inherit;
+  user-select: none;
+}
+.info-tip:hover { background: var(--accent); color: #000; border-color: var(--accent); }
+.info-tip-popover {
+  position: fixed;
+  background: #15171b;
+  color: var(--text);
+  border: 1px solid var(--accent);
+  padding: 10px 14px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  max-width: 320px;
+  z-index: 9999;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+  pointer-events: none;
+  font-weight: normal;
+  letter-spacing: 0;
+}
+.fan-row.disabled { opacity: 0.45; }
+.fan-row .fan-name { font-size: 11px; color: var(--text); font-weight: 500; }
+.fan-row .fan-id { font-size: 10px; color: var(--text-faint); margin-left: 4px; }
+.fan-row input[type="number"] {
+  background: var(--bg-2); border: 1px solid var(--line-2);
+  color: var(--text); padding: 5px 8px;
+  font-family: var(--mono); font-size: 12px; text-align: center;
+  width: 100%;
+}
+.fan-row input[type="number"]:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+.fan-row input[type="number"]:disabled { color: var(--text-faint); cursor: not-allowed; }
+.field-label {
+  font-size: 11px; color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.field-hint { font-size: 10px; color: var(--text-faint); margin-top: 2px; }
+.field input[type="number"], .field input[type="text"], .field select {
+  background: var(--bg-3); border: 1px solid var(--line-2);
+  color: var(--text); padding: 6px 10px;
+  font-family: var(--mono); font-size: 12px;
+  width: 100%;
+}
+.field input:focus, .field select:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+
+.toggle {
+  display: inline-flex; align-items: center; gap: 8px;
+  cursor: pointer; user-select: none;
+}
+.toggle input { display: none; }
+.toggle-track {
+  width: 36px; height: 18px;
+  background: var(--bg-3); border: 1px solid var(--line-2);
+  position: relative; transition: 0.15s;
+}
+.toggle-track::after {
+  content: ''; position: absolute;
+  width: 12px; height: 12px;
+  background: var(--text-dim);
+  top: 2px; left: 2px;
+  transition: 0.15s;
+}
+.toggle input:checked + .toggle-track {
+  background: rgba(255,122,47,0.2); border-color: var(--accent);
+}
+.toggle input:checked + .toggle-track::after {
+  background: var(--accent); left: 20px;
+}
+.toggle-label { font-size: 12px; color: var(--text); }
+
+/* ===== GENERATE BUTTON ===== */
+.action-zone {
+  margin-top: 20px;
+  padding: 18px;
+  background: var(--bg-2); border: 1px solid var(--line);
+  display: grid; gap: 12px;
+}
+.btn-primary {
+  background: var(--accent); color: var(--bg-0);
+  border: none; padding: 14px 20px;
+  font-family: var(--mono); font-weight: 700; font-size: 13px;
+  text-transform: uppercase; letter-spacing: 0.15em;
+  cursor: pointer; transition: 0.15s;
+  position: relative;
+}
+.btn-primary:hover { background: #ff8a45; box-shadow: 0 0 24px rgba(255,122,47,0.4); }
+.btn-primary:disabled { background: var(--bg-3); color: var(--text-faint); cursor: not-allowed; box-shadow: none; }
+.btn-secondary {
+  background: none; border: 1px solid var(--line-2); color: var(--text-dim);
+  padding: 8px 14px;
+  font-family: var(--mono); font-size: 11px;
+  cursor: pointer; text-transform: uppercase; letter-spacing: 0.1em;
+}
+.btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ===== RESULT ===== */
+.result {
+  margin-top: 16px; padding: 14px;
+  background: var(--bg-3);
+  border: 1px solid var(--green);
+  border-left: 3px solid var(--green);
+  display: none;
+}
+.result.show { display: block; }
+.result-title { color: var(--green); font-weight: 600; font-size: 12px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.1em; }
+.result-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px; color: var(--text-dim); margin-bottom: 12px; }
+.result-stats .v { color: var(--text); font-weight: 600; }
+.btn-download {
+  display: inline-block; width: 100%; text-align: center;
+  background: var(--green); color: var(--bg-0);
+  padding: 10px; text-decoration: none; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.1em; font-size: 12px;
+  font-family: var(--mono);
+}
+.btn-download:hover { background: #7ce098; }
+
+/* ===== TOAST ===== */
+.toast {
+  position: fixed; bottom: 24px; right: 24px;
+  background: var(--bg-2); border: 1px solid var(--line-2);
+  padding: 12px 18px; font-size: 12px;
+  border-left: 3px solid var(--accent);
+  z-index: 200;
+  transform: translateY(calc(100% + 48px));
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.25s, opacity 0.25s;
+  max-width: 360px;
+}
+.toast.show {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+.toast.error { border-left-color: var(--red); }
+.toast.success { border-left-color: var(--green); }
+
+/* ===== SUMMARY BAR ===== */
+.summary {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+  margin-top: 16px;
+}
+.summary-card {
+  background: var(--bg-2); border: 1px solid var(--line);
+  padding: 12px 14px;
+}
+.summary-label {
+  font-size: 10px; color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  margin-bottom: 4px;
+}
+.summary-value {
+  font-family: var(--display); font-weight: 700;
+  font-size: 22px; color: var(--accent);
+}
+
+/* select arrow */
+select { appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--text-dim) 50%), linear-gradient(135deg, var(--text-dim) 50%, transparent 50%); background-position: calc(100% - 14px) center, calc(100% - 9px) center; background-size: 5px 5px; background-repeat: no-repeat; padding-right: 24px !important; }
+
+/* dropdown option background — overrides the default white OS background (dark theme) */
+select option {
+  background: #1a1a1a !important;
+  color: #e6ecf3 !important;
+  padding: 6px;
+}
+select option:disabled {
+  background: #0a0a0a !important;
+  color: #666 !important;
+  font-style: italic;
+}
+
+/* ===== piano keyboard ===== */
+.piano-wrap {
+  background: #2a2a2a;
+  padding: 8px;
+  overflow-x: auto;
+  overflow-y: visible;
+  border: 1px solid var(--line);
+}
+.piano {
+  position: relative;
+  display: inline-block;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.piano-white-row {
+  display: flex;
+  gap: 1px;
+}
+.piano-key {
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  justify-content: flex-start;
+  font-family: var(--mono);
+  transition: background 0.05s, transform 0.05s;
+  outline: none;
+}
+.piano-white {
+  width: 30px;
+  height: 110px;
+  background: #f4f4f4;
+  border: 1px solid #888;
+  color: #333;
+  position: relative;
+}
+.piano-white:hover { background: #ffd9b8; }
+.piano-white.flash { background: var(--accent); color: white; }
+.piano-white .key-label {
+  font-size: 9px;
+  padding: 4px 0 6px;
+  pointer-events: none;
+}
+.piano-white.octave-c { background: #e8e8e8; }
+.piano-white.octave-c:hover { background: #ffd9b8; }
+.piano-white.octave-c.flash { background: var(--accent); }
+.piano-black {
+  position: absolute;
+  top: 0;
+  width: 20px;
+  height: 70px;
+  background: #1a1a1a;
+  border: 1px solid #000;
+  color: #ddd;
+  font-size: 8px;
+}
+.piano-black:hover { background: #444; }
+.piano-black.flash { background: var(--accent); color: white; }
+.piano-black .key-label {
+  font-size: 8px;
+  padding: 0 0 5px;
+  pointer-events: none;
+}
+
+/* scrollbar */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg-1); }
+::-webkit-scrollbar-thumb { background: var(--line-2); }
+::-webkit-scrollbar-thumb:hover { background: var(--accent-dim); }
+</style>
+</head>
+<body>
+
+<div id="protocol-warn" style="display:none; background:#5a2020; color:#fff; padding:14px 20px; text-align:center; font-size:13px; border-bottom:2px solid #ff5050; font-family: 'JetBrains Mono', monospace; line-height:1.6;">
+  <strong style="color:#ffaaaa;">⚠ 잘못된 실행 방법</strong> &nbsp;·&nbsp;
+  이 HTML 파일을 직접 열면 동작하지 않습니다. 터미널에서
+  <code style="background:#000; padding:2px 8px; color:#ffd0a0; border:1px solid #553333;">python app.py</code>
+  실행 후 <a href="http://localhost:5000" style="color:#ffd0a0; text-decoration:underline;">http://localhost:5000</a> 으로 접속하세요.
+  <br>
+  <span style="color:#ffaaaa; font-size:11px;">파일 업로드 / G-code 생성 / 다운로드 모두 Flask 백엔드가 필요합니다.</span>
+</div>
+
+<header>
+  <div class="logo">
+    <div class="logo-mark">BL</div>
+    <div>BambuLoop<span class="logo-sub">H2S Edition</span></div>
+  </div>
+  <div class="status-bar">
+    <span><span class="status-dot"></span><span data-i18n="sys_ready">SYS READY</span></span>
+    <span>BAMBU H2S · 340×320×340</span>
+    <button id="langToggle" style="background:transparent; border:1px solid var(--line-2); color:var(--text); padding:4px 12px; cursor:pointer; font-family:inherit; font-size:11px; letter-spacing:0.1em;">
+      EN / KO
+    </button>
+  </div>
+</header>
+
+<main>
+  <!-- ============ LEFT: job panel ============ -->
+  <div>
+    <!-- Upload -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-tag">01</span>
+        <span class="panel-title"><span data-i18n="panel_upload">G-CODE 업로드</span></span>
+      </div>
+      <div class="panel-body">
+        <label class="dropzone" id="dropzone">
+          <div class="dropzone-icon">[ + ]</div>
+          <div class="dropzone-text">
+            <strong>클릭하거나 드래그하여 G-code 파일 추가</strong><br>
+            지원: .gcode, .gco, .g, <strong>.3mf</strong> (Bambu Studio 내보내기 그대로) · 다중 업로드 가능
+          </div>
+          <input type="file" id="fileInput" multiple accept=".gcode,.gco,.g,.3mf" />
+        </label>
+
+        <div class="job-list" id="jobList"></div>
+        <div class="empty-state" id="emptyState">
+          업로드된 작업이 없습니다. 위 영역에 G-code 파일을 추가하세요.
+        </div>
+
+        <div class="summary">
+          <div class="summary-card">
+            <div class="summary-label">JOBS</div>
+            <div class="summary-value" id="sumJobs">0</div>
+          </div>
+          <div class="summary-card">
+            <div class="summary-label">TOTAL PRINTS</div>
+            <div class="summary-value" id="sumPrints">0</div>
+          </div>
+          <div class="summary-card">
+            <div class="summary-label">EST. SIZE</div>
+            <div class="summary-value" id="sumSize" style="font-size:16px;">— KB</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Multi-project compatibility warning banner (persistent) -->
+    <div id="compatBanner" style="display:none; margin-top:12px; padding:14px 16px; border:2px solid #e74c3c; background:rgba(231,76,60,0.1); border-left:6px solid #e74c3c;">
+      <div style="display:flex; gap:12px; align-items:flex-start;">
+        <div style="font-size:24px; line-height:1;">⚠️</div>
+        <div style="flex:1;">
+          <div id="compatBannerTitle" style="font-weight:700; font-size:13px; color:#ff8e7a; margin-bottom:6px; letter-spacing:0.05em;">
+            MULTI-PROJECT COMPATIBILITY CONFLICT
+          </div>
+          <div id="compatBannerBody" style="font-size:12px; color:var(--text); line-height:1.6;">
+            <!-- filled dynamically -->
+          </div>
+          <div id="compatBannerHelp" style="font-size:11px; color:var(--text-dim); margin-top:8px; line-height:1.5;">
+            <!-- filled dynamically -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="action-zone">
+      <button class="btn-primary" id="generateBtn" disabled>
+        ▶ 통합 G-CODE 생성
+      </button>
+      <div style="display:flex; gap:8px;">
+        <button class="btn-secondary" id="dryRunBtn" style="flex:1;"><span data-i18n="btn_dryrun">⚡ Dry-run G-code 생성 (시퀀스만 검증)</span></button>
+        <button class="btn-secondary" id="resetBtn" style="flex:0 0 auto;"><span data-i18n="btn_reset">초기화</span></button>
+      </div>
+      <div class="result" id="result">
+        <div class="result-title"><span data-i18n="result_complete">✓ 생성 완료</span></div>
+        <div class="result-stats">
+          <div>파일명: <span class="v" id="rFile">—</span></div>
+          <div>크기: <span class="v" id="rSize">—</span></div>
+          <div>총 라인: <span class="v" id="rLines">—</span></div>
+          <div>총 인쇄: <span class="v" id="rCopies">—</span></div>
+        </div>
+
+        <!-- Safety validation result -->
+        <div id="safetyBox" style="margin-top:14px; padding:12px; border:1.5px solid var(--line-2); display:none;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; gap:8px; flex-wrap:wrap;">
+            <div style="font-weight:700; font-size:13px;" id="safetyVerdict">—</div>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <span style="font-size:11px; color:var(--text-dim);">마진</span>
+              <input type="number" id="safetyMargin" value="20" min="0" max="50" step="1" style="width:60px; background:var(--bg); color:var(--text); border:1px solid var(--line-2); padding:4px;" />
+              <span style="font-size:11px; color:var(--text-dim);">mm</span>
+              <button class="btn-secondary" id="safetyRecheck" style="padding:4px 10px; font-size:11px;"><span data-i18n="safety_recheck">↻ 재검증</span></button>
+            </div>
+          </div>
+          <div class="result-stats" style="grid-template-columns:1fr 1fr;">
+            <div>이동 명령: <span class="v" id="sMoves">—</span></div>
+            <div>실제 BBox: <span class="v" id="sBbox" style="font-size:11px;">—</span></div>
+            <div>인쇄 영역: <span class="v" id="sPrintable" style="font-size:11px;">—</span></div>
+            <div>물리 한계: <span class="v" id="sPhysical" style="font-size:11px;">—</span></div>
+          </div>
+          <div style="display:flex; gap:8px; margin-top:8px;">
+            <div style="flex:1; padding:8px; background:rgba(255,165,0,0.06); border-left:3px solid #f5a623;">
+              ⚠️ 영역 밖: <strong id="sSoftCount">0</strong>
+              <button class="btn-secondary" id="sSoftDetailBtn" style="padding:2px 8px; margin-left:6px; font-size:11px;" disabled><span data-i18n="safety_details">상세</span></button>
+            </div>
+            <div style="flex:1; padding:8px; background:rgba(255,80,80,0.06); border-left:3px solid #e74c3c;">
+              ⛔ 충돌 위험: <strong id="sHardCount">0</strong>
+              <button class="btn-secondary" id="sHardDetailBtn" style="padding:2px 8px; margin-left:6px; font-size:11px;" disabled>상세</button>
+            </div>
+          </div>
+          <div class="field-hint" id="sHeader" style="margin-top:6px;"></div>
+        </div>
+
+        <a class="btn-download" id="downloadLink" href="#" download>↓ 다운로드</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ RIGHT: settings panel ============ -->
+  <aside>
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-tag">02</span>
+        <span class="panel-title"><span data-i18n="panel_settings">자동화 시퀀스 설정</span></span>
+      </div>
+
+      <!-- Cooling settings -->
+      <div class="settings-section" data-section="cooling">
+        <div class="settings-header">
+          <span><span data-i18n="section_cooling">◢ 냉각 시퀀스</span></span>
+          <span class="chev">▾</span>
+        </div>
+        <div class="settings-body">
+          <div class="field">
+            <div class="field-row">
+              <div>
+                <div class="field-label">
+                  <span data-i18n="bed_detach_temp">베드 분리 온도</span>
+                  <span class="info-tip" data-tip="bed_detach_tip">ⓘ</span>
+                </div>
+                <div class="field-hint">PLA 35°C · PETG 35°C · ABS 40°C (max 40°C)</div>
+              </div>
+              <input type="number" id="cooling_bed_temp" value="35" min="0" max="40" />
+            </div>
+          </div>
+          <div class="field">
+            <div class="field-row">
+              <div>
+                <div class="field-label">냉각 반복 횟수 <span class="info-tip" data-tip="cooling_retries_tip">ⓘ</span></div>
+                <div class="field-hint">M190 R 반복 (1~30, 기본 5). 많을수록 낮은 온도까지 도달</div>
+              </div>
+              <input type="number" id="cooling_retries" value="5" min="1" max="30" />
+            </div>
+          </div>
+          <div class="field">
+            <div class="field-row">
+              <div>
+                <div class="field-label">챔버 냉각 목표</div>
+                <div class="field-hint">0 = 챔버 대기 안 함</div>
+              </div>
+              <input type="number" id="cooling_chamber_temp" value="0" min="0" max="60" />
+            </div>
+          </div>
+          <div class="field">
+            <div class="field-label" style="margin-bottom:4px;">팬 제어 (개별 ON/OFF) <span class="info-tip" data-tip="fan_tip">ⓘ</span></div>
+            <div class="fan-row" id="fan-row-p1">
+              <label class="toggle">
+                <input type="checkbox" id="part_fan_enabled" checked />
+                <span class="toggle-track"></span>
+              </label>
+              <div><span class="fan-name">파트 쿨링</span><span class="fan-id">P1</span></div>
+              <input type="number" id="part_fan_speed" value="100" min="0" max="100" /><span class="fan-pct">%</span>
+            </div>
+            <div class="fan-row" id="fan-row-p2">
+              <label class="toggle">
+                <input type="checkbox" id="aux_fan_enabled" checked />
+                <span class="toggle-track"></span>
+              </label>
+              <div><span class="fan-name">AUX 보조 팬</span><span class="fan-id">P2</span></div>
+              <input type="number" id="aux_fan_speed" value="100" min="0" max="100" /><span class="fan-pct">%</span>
+            </div>
+            <div class="fan-row" id="fan-row-p3">
+              <label class="toggle">
+                <input type="checkbox" id="chamber_fan_enabled" checked />
+                <span class="toggle-track"></span>
+              </label>
+              <div><span class="fan-name">챔버 배기</span><span class="fan-id">P3</span></div>
+              <input type="number" id="chamber_fan_speed" value="100" min="0" max="100" /><span class="fan-pct">%</span>
+            </div>
+            <div class="field-hint" style="margin-top:6px;">토글 OFF 시 명시적 M106 P&lt;n&gt; S0 전송 (잔류 상태 차단)</div>
+          </div>
+          <!-- Parking Z (two values shown together) -->
+          <div class="field" style="border-top:1px solid var(--line); margin-top:10px; padding-top:10px;">
+            <div class="field-label" style="color:var(--accent); margin-bottom:4px;">
+              <span data-i18n="parking_z_group">📐 파킹 Z 계산</span>
+              <span class="info-tip" data-tip="parking_z_tip">ⓘ</span>
+            </div>
+            <div class="field-hint" style="margin-bottom:8px; font-family:monospace; font-size:10.5px; color:var(--text);">
+              final = max(<span style="color:#5fc8ff;">minimum</span>, print_height + <span style="color:#ffaa55;">clearance</span>)
+            </div>
+            <div class="field-row">
+              <div>
+                <div class="field-label" style="color:#5fc8ff;">└ <span data-i18n="parking_z_min">파킹 Z 최소값</span></div>
+                <div class="field-hint" data-i18n="parking_z_min_hint">절대 baseline (작은 인쇄물 보호)</div>
+              </div>
+              <input type="number" id="cooling_park_z_min" value="20" min="20" max="320" />
+            </div>
+            <div class="field-row" style="margin-top:6px;">
+              <div>
+                <div class="field-label" style="color:#ffaa55;">└ <span data-i18n="parking_z_clearance">인쇄물 위 여유</span></div>
+                <div class="field-hint" data-i18n="parking_z_clearance_hint">큰 인쇄물에 자동 여유 추가</div>
+              </div>
+              <input type="number" id="park_z_clearance" value="10" min="3" max="50" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Eject settings -->
+      <div class="settings-section" data-section="eject">
+        <div class="settings-header">
+          <span><span data-i18n="section_eject">◢ 분리(밀어내기) 시퀀스</span></span>
+          <span class="chev">▾</span>
+        </div>
+        <div class="settings-body">
+          <!-- ==== Sweep visualization (live preview) ==== -->
+          <div class="sweep-viz-wrap" style="margin-bottom:14px; border:1px solid var(--line); padding:10px; background:var(--bg-2);">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <div style="font-size:11px; color:var(--text-faint); letter-spacing:0.1em;"><span data-i18n="sweep_preview">▸ 스윕 미리보기</span></div>
+              <button class="btn-secondary" id="sweepVizToggle" style="padding:2px 10px; font-size:11px;">접기 ▾</button>
+            </div>
+            <div id="sweepVizContent">
+              <div style="display:flex; gap:8px; align-items:flex-start;">
+                <!-- Z progress indicator (left side) -->
+                <div style="display:flex; flex-direction:column; align-items:center; padding-top:14px;">
+                  <div style="font-size:9px; color:var(--text-faint); margin-bottom:4px;">Z단</div>
+                  <svg id="sweepZBar" width="32" height="180" style="background:#0a0a0a; border:1px solid var(--line);"></svg>
+                  <div id="sweepZLabel" style="font-size:9px; color:var(--accent); margin-top:4px;">1/4</div>
+                </div>
+                <!-- Bed top-down view (main) -->
+                <div style="flex:1;">
+                  <svg id="sweepTopSvg" viewBox="0 0 360 320" style="width:100%; height:auto; background:#0a0a0a; border:1px solid var(--line); display:block;"></svg>
+                </div>
+              </div>
+              <!-- Controls -->
+              <div style="display:flex; gap:8px; align-items:center; margin-top:8px; flex-wrap:wrap;">
+                <button class="btn-secondary" id="sweepPlayBtn" style="padding:4px 10px; font-size:11px; min-width:60px;"><span data-i18n="sweep_play">▶ 재생</span></button>
+                <span style="font-size:10px; color:var(--text-dim);"><span data-i18n="sweep_speed">속도</span></span>
+                <input type="range" id="sweepSpeed" min="0.5" max="3" step="0.5" value="1" style="flex:1; min-width:80px;" />
+                <span id="sweepSpeedLabel" style="font-size:10px; color:var(--accent); min-width:30px;">1.0x</span>
+              </div>
+              <div id="sweepStatus" style="font-size:10px; color:var(--text-dim); margin-top:4px; text-align:center;">—</div>
+              <div class="field-hint" style="margin-top:6px;">
+                값을 바꾸면 즉시 반영됩니다. 헤드 마커는 실제 동작 순서대로 움직입니다.
+              </div>
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="field-row">
+              <div><div class="field-label"><span data-i18n="method">방식</span></div></div>
+              <select id="eject_method">
+                <option value="multi_sweep">다중 스윕</option>
+                <option value="edge_to_center" selected>좌우 교차</option>
+                <option value="edge_to_center_bottom">좌우 교차 (바닥 고정)</option>
+                <option value="zigzag">지그재그</option>
+                <option value="sweep">단일 스윕</option>
+                <option value="bottom_only">바닥 반복 (낮은 오브젝트)</option>
+                <option value="none">사용 안 함</option>
+              </select>
+            </div>
+          </div>
+          <div class="field">
+            <div class="field-row">
+              <div>
+                <div class="field-label">최종 스윕 Z 오프셋 <span class="info-tip" data-tip="eject_z_offset_tip">ⓘ</span></div>
+                <div class="field-hint">베드 표면 위 노즐 높이 (mm)</div>
+              </div>
+              <input type="number" id="eject_z_offset" value="0.4" step="0.1" min="0" max="5" />
+            </div>
+          </div>
+          <div class="field">
+            <div class="field-row">
+              <div>
+                <div class="field-label">파킹 Z 여유 ⚡ <span class="info-tip" data-tip="initial_z_clearance_tip">ⓘ</span></div>
+                <div class="field-hint">XY 파킹 시 인쇄물 위 여유 (mm)</div>
+              </div>
+              <input type="number" id="eject_z_start_offset" value="10" step="0.5" min="2" max="50" />
+            </div>
+          </div>
+          <div class="field">
+            <div class="field-row">
+              <div>
+                <div class="field-label">하강 단계 수 ⚡ <span class="info-tip" data-tip="descent_steps_tip">ⓘ</span></div>
+                <div class="field-hint">위→아래 분할 횟수 (1=한번에)</div>
+              </div>
+              <input type="number" id="eject_descent_steps" value="4" min="1" max="8" />
+            </div>
+          </div>
+          <div class="field">
+            <div class="field-row">
+              <div>
+                <div class="field-label">스윕 속도 <span class="info-tip" data-tip="sweep_speed_tip">ⓘ</span></div>
+                <div class="field-hint">mm/min</div>
+              </div>
+              <input type="number" id="eject_speed" value="9000" min="500" max="12000" step="100" />
+            </div>
+          </div>
+          <div class="field">
+            <div class="field-row">
+              <div>
+                <div class="field-label">Y축 스윕 횟수 (X 분할) <span class="info-tip" data-tip="x_passes_tip">ⓘ</span></div>
+                <div class="field-hint">한 단계에서 X 위치 몇 번 분할하여 스윕할지</div>
+              </div>
+              <input type="number" id="eject_passes" value="11" min="1" max="30" />
+            </div>
+          </div>
+          <div class="field">
+            <div class="field-row">
+              <div>
+                <div class="field-label">후방 베드밖 거리 ⚡ <span class="info-tip" data-tip="back_overhang_tip">ⓘ</span></div>
+                <div class="field-hint">Y = (bedY + this value) — 헤드를 베드 밖으로 보낸 뒤 Z 하강 (인쇄물 누름 방지)</div>
+              </div>
+              <input type="number" id="back_overhang_mm" value="15" min="0" max="30" />
+            </div>
+          </div>
+          <div class="field">
+            <div class="field-row">
+              <div>
+                <div class="field-label">전방 베드밖 거리 <span class="info-tip" data-tip="front_overhang_tip">ⓘ</span></div>
+                <div class="field-hint">Y=−이값 — 베드 앞면 넘어 인쇄물 낙하 보장</div>
+              </div>
+              <input type="number" id="front_overhang_mm" value="5" min="0" max="20" />
+            </div>
+          </div>
+          <div class="field">
+            <div class="field-row">
+              <div><div class="field-label">베드 X (mm)</div></div>
+              <input type="number" id="bed_size_x" value="340" min="100" max="500" />
+            </div>
+          </div>
+          <div class="field">
+            <div class="field-row">
+              <div><div class="field-label">베드 Y (mm)</div></div>
+              <input type="number" id="bed_size_y" value="320" min="100" max="500" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Reset / safety -->
+      <div class="settings-section collapsed" data-section="reset">
+        <div class="settings-header">
+          <span data-i18n="section_reheat">◢ 리셋 / 안전 / 재가열</span>
+          <span class="chev">▾</span>
+        </div>
+        <div class="settings-body">
+          <label class="toggle">
+            <input type="checkbox" id="pause_after_eject" />
+            <span class="toggle-track"></span>
+            <span class="toggle-label">분리 후 일시정지 ⚡ (Handy 카메라로 검증)</span>
+          </label>
+          <div class="field-hint" style="margin-left:46px;margin-top:-4px;">M400 U1 삽입. Bambu Handy/Studio에서 'Resume'으로 재개</div>
+
+          <label class="toggle">
+            <input type="checkbox" id="nozzle_clean_between" checked />
+            <span class="toggle-track"></span>
+            <span class="toggle-label">노즐 클리닝 (G150.1)</span>
+          </label>
+          <div class="field-hint" style="margin-left:46px;margin-top:-4px;">Bambu 플러싱 블록에 이미 포함됨. 플러싱 fallback 시에만 개별 적용.</div>
+
+          <label class="toggle">
+            <input type="checkbox" id="rehome_xy_between" checked />
+            <span class="toggle-track"></span>
+            <span class="toggle-label">XY 재호밍 (인쇄 사이)</span>
+          </label>
+          <label class="toggle">
+            <input type="checkbox" id="rehome_z_between" />
+            <span class="toggle-track"></span>
+            <span class="toggle-label">Z 재호밍 (느림, 정밀 필요 시)</span>
+          </label>
+          <label class="toggle">
+            <input type="checkbox" id="purge_between" checked />
+            <span class="toggle-track"></span>
+            <span class="toggle-label">플러싱 + 클리닝 (Bambu 표준 ⚡)</span>
+          </label>
+          <div class="field-hint" style="margin-left:46px; margin-top:-4px;">
+            가비지 캔으로 필라멘트 배출(E45) + G150.1 와이프 — 베드에 잔여물 없음.<br>
+            업로드 .gcode의 블록 자동 추출·재사용 (슬라이서가 필라멘트별로 튜닝한 값)
+          </div>
+          <div class="field">
+            <div class="field-row">
+              <div>
+                <div class="field-label">Fallback 시만 사용</div>
+                <div class="field-hint">Bambu 블록 없을 때 수동 E 압출량 (legacy, 무시됨)</div>
+              </div>
+              <input type="number" id="purge_length_mm" value="30" min="10" max="100" />
+            </div>
+          </div>
+
+          <!-- M73 progress recalc options -->
+          <div class="field" style="border-top:1px solid var(--line); margin-top:10px; padding-top:10px;">
+            <div class="field-label" style="color:var(--accent);"><span data-i18n="m73_section">📊 M73 진행률 재계산</span></div>
+            <div class="field-hint" style="margin-bottom:6px; line-height:1.5;">
+              원본 G-code 헤더의 시간을 기반으로 전체 bambuloop 누적 진행률 자동 계산.
+              <strong>항상 ON</strong> — 인쇄 사이 POST_PRINT 시간만 미세조정 가능.
+            </div>
+            <div class="field-row">
+              <div>
+                <div class="field-label"><span data-i18n="m73_override">사이클당 추가 시간 (분)</span></div>
+                <div class="field-hint">0 = 자동 추정 (냉각/분리/재가열/리셋 합산)</div>
+              </div>
+              <input type="number" id="post_print_override_min" value="0" min="0" max="60" step="1" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sound alert settings -->
+      <div class="settings-section" data-section="sound">
+        <div class="settings-header">
+          <span><span data-i18n="section_sound">◢ 사운드 알림 (M1006)</span></span>
+          <span class="chev">▾</span>
+        </div>
+        <div class="settings-body">
+          <div class="field-hint" style="margin-bottom:10px;">
+            각 이벤트마다 다른 멜로디를 선택할 수 있습니다.<br>
+            🆕 <strong>시작/종료 사운드</strong>는 Bambu 정품 사운드를 우리 사운드로 교체합니다.
+          </div>
+
+          <div class="field">
+            <div class="field-label" style="color:var(--accent);"><span data-i18n="sound_event_start">🎬 프린팅 최초 시작 (start_gcode 안)</span></div>
+            <div style="display:flex; gap:6px; align-items:center;"><select id="sound_print_start" style="flex:1; min-width:0; background:var(--bg); color:var(--text); border:1.5px solid var(--line-2); padding:8px; font-family:inherit; font-size:12px;"></select><button class="btn-secondary sound-preview-btn" data-target="sound_print_start" style="padding:6px 10px; font-size:13px; flex-shrink:0;" title="브라우저에서 미리듣기">▶</button></div>
+          </div>
+
+          <div class="field">
+            <div class="field-label" style="color:var(--accent);"><span data-i18n="sound_event_done">🖨️ 프린팅 완료 (냉각 직전)</span></div>
+            <div style="display:flex; gap:6px; align-items:center;"><select id="sound_print_done" style="flex:1; min-width:0; background:var(--bg); color:var(--text); border:1.5px solid var(--line-2); padding:8px; font-family:inherit; font-size:12px;"></select><button class="btn-secondary sound-preview-btn" data-target="sound_print_done" style="padding:6px 10px; font-size:13px; flex-shrink:0;" title="브라우저에서 미리듣기">▶</button></div>
+          </div>
+
+          <div class="field">
+            <div class="field-label" style="color:var(--accent);"><span data-i18n="sound_event_cool">❄️ 냉각 완료 (분리 직전)</span></div>
+            <div style="display:flex; gap:6px; align-items:center;"><select id="sound_cool_done" style="flex:1; min-width:0; background:var(--bg); color:var(--text); border:1.5px solid var(--line-2); padding:8px; font-family:inherit; font-size:12px;"></select><button class="btn-secondary sound-preview-btn" data-target="sound_cool_done" style="padding:6px 10px; font-size:13px; flex-shrink:0;" title="브라우저에서 미리듣기">▶</button></div>
+          </div>
+
+          <div class="field">
+            <div class="field-label" style="color:var(--accent);"><span data-i18n="sound_event_sweep">🧹 스윕 완료 (재가열 직전)</span></div>
+            <div style="display:flex; gap:6px; align-items:center;"><select id="sound_sweep_done" style="flex:1; min-width:0; background:var(--bg); color:var(--text); border:1.5px solid var(--line-2); padding:8px; font-family:inherit; font-size:12px;"></select><button class="btn-secondary sound-preview-btn" data-target="sound_sweep_done" style="padding:6px 10px; font-size:13px; flex-shrink:0;" title="브라우저에서 미리듣기">▶</button></div>
+          </div>
+
+          <div class="field">
+            <div class="field-label" style="color:var(--accent);"><span data-i18n="sound_event_restart">🔄 재시작 (다음 인쇄 직전)</span></div>
+            <div style="display:flex; gap:6px; align-items:center;"><select id="sound_restart" style="flex:1; min-width:0; background:var(--bg); color:var(--text); border:1.5px solid var(--line-2); padding:8px; font-family:inherit; font-size:12px;"></select><button class="btn-secondary sound-preview-btn" data-target="sound_restart" style="padding:6px 10px; font-size:13px; flex-shrink:0;" title="브라우저에서 미리듣기">▶</button></div>
+          </div>
+
+          <div class="field">
+            <div class="field-label" style="color:var(--accent);"><span data-i18n="sound_event_end">🎉 프린팅 모두 완료 (end_gcode 안)</span></div>
+            <div style="display:flex; gap:6px; align-items:center;"><select id="sound_print_end" style="flex:1; min-width:0; background:var(--bg); color:var(--text); border:1.5px solid var(--line-2); padding:8px; font-family:inherit; font-size:12px;"></select><button class="btn-secondary sound-preview-btn" data-target="sound_print_end" style="padding:6px 10px; font-size:13px; flex-shrink:0;" title="브라우저에서 미리듣기">▶</button></div>
+          </div>
+
+          <div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--line);">
+            <div class="field-label" style="margin-bottom:8px;"><span data-i18n="catalog_label">🔊 카탈로그 다운로드</span></div>
+            <select id="catalogMode" style="width:100%; background:var(--bg); color:var(--text); border:1.5px solid var(--line-2); padding:8px; font-family:inherit; font-size:12px; margin-bottom:6px;">
+              <option value="all"><span data-i18n="catalog_all">전체 (기본 + 커스텀)</span></option>
+              <option value="builtin"><span data-i18n="catalog_builtin">기본 프리셋만</span></option>
+              <option value="custom"><span data-i18n="catalog_custom">내 커스텀 멜로디만</span></option>
+            </select>
+            <button class="btn-secondary" id="soundCatalogBtn" style="width:100%;">
+              ↓ 카탈로그 G-code 다운로드
+            </button>
+            <div class="field-hint" style="margin-top:6px; line-height:1.5;">
+              각 프리셋 2초 간격 순차 재생. <span id="soundCatalogCount" style="color:var(--accent);"></span>
+            </div>
+          </div>
+
+          <div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--line);">
+            <button class="btn-secondary" id="customMelodyBtn" style="width:100%; background:rgba(255,122,47,0.1); border-color:var(--accent); color:var(--accent);">
+              🎼 커스텀 멜로디 만들기
+            </button>
+            <div class="field-hint" style="margin-top:6px; line-height:1.5;">
+              나만의 멜로디 생성 + 미리듣기. 저장하면 위 4개 이벤트 드롭다운에서 ★ 표시로 선택 가능.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<!-- ============================================================ -->
+<!-- Custom modal (replaces native alert/confirm)                  -->
+<!-- ============================================================ -->
+<div class="modal-backdrop" id="alertModal" style="display:none;">
+  <div class="modal-card" style="max-width:520px; border:2px solid var(--accent);">
+    <div class="modal-header" style="border-bottom:1px solid var(--line);">
+      <span id="alertModalTitle" style="font-weight:700; letter-spacing:0.05em; font-size:14px;">Notice</span>
+      <button class="modal-close" id="alertModalClose" style="background:none; border:none; color:var(--text); font-size:24px; cursor:pointer; line-height:1;">×</button>
+    </div>
+    <div class="modal-body" id="alertModalBody" style="padding:18px; font-size:13px; line-height:1.7; color:var(--text);">
+      <!-- filled dynamically -->
+    </div>
+    <div class="modal-footer" style="padding:12px 18px; border-top:1px solid var(--line); display:flex; gap:8px; justify-content:flex-end;">
+      <button class="btn-secondary" id="alertModalCancel" style="display:none;">Cancel</button>
+      <button class="btn-primary" id="alertModalOk" style="padding:8px 24px;">OK</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Custom melody builder modal                                   -->
+<!-- ============================================================ -->
+<div class="modal-backdrop" id="customMelodyModal" style="display:none;">
+  <div class="modal-card" style="max-width:680px;">
+    <div class="modal-header">
+      <span style="color:var(--accent); font-weight:700; letter-spacing:0.15em;"><span data-i18n="modal_melody_builder">🎼 커스텀 멜로디 빌더</span></span>
+      <button class="modal-close" id="cmCancel">×</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:12px; color:var(--text-dim); margin-bottom:14px; line-height:1.6;">
+        음표를 추가/순서변경/삭제해서 멜로디를 만드세요.
+        <strong style="color:var(--accent);">브라우저 미리듣기</strong>는 즉시 가능 (모터 음과 다름),
+        <strong style="color:var(--accent);">프린터 미리듣기</strong>는 G-code 다운로드 후 프린터에서 실행.
+      </p>
+
+      <!-- Melody name -->
+      <div class="field" style="margin-bottom:12px;">
+        <div class="field-label">멜로디 이름</div>
+        <input type="text" id="cmName" placeholder="예: 내 멜로디 1" data-placeholder-en="e.g. My Melody 1" data-placeholder-ko="예: 내 멜로디 1" style="width:100%; background:var(--bg); color:var(--text); border:1.5px solid var(--line-2); padding:8px; font-family:inherit; font-size:13px;" />
+      </div>
+
+      <!-- Add note (piano keyboard) -->
+      <div style="border:1px solid var(--line); padding:12px; margin-bottom:12px;">
+        <div class="field-label" style="color:var(--accent); margin-bottom:8px;">▸ 🎹 피아노 (들리는 음역대 C4~D6)</div>
+        <div class="field-hint" style="margin-bottom:8px;">
+          건반을 클릭하면 즉시 노트 추가 + 미리듣기. 길이는 아래 슬라이더로 미리 설정.
+        </div>
+        <div class="piano-wrap">
+          <div class="piano" id="pianoContainer"></div>
+        </div>
+        <div style="display:grid; grid-template-columns: 1fr auto; gap:8px; align-items:end; margin-top:10px;">
+          <div>
+            <div class="field-hint" style="margin-bottom:3px;">길이: <span id="cmDurDisplay">0.2초</span> (B=<span id="cmDurTicks">20</span>)</div>
+            <input type="range" id="cmDuration" min="10" max="80" step="5" value="20" style="width:100%;" />
+          </div>
+          <button class="btn-secondary" id="cmAddRest" style="padding:8px 16px;">+ 휴지</button>
+        </div>
+      </div>
+
+      <!-- Note list -->
+      <div style="border:1px solid var(--line); padding:12px; margin-bottom:12px; min-height:80px; max-height:200px; overflow-y:auto;">
+        <div class="field-label" style="color:var(--accent); margin-bottom:8px;">▸ <span data-i18n="modal_melody_label">멜로디</span> (<span id="cmNoteCount">0</span><span class="cm-notes-suffix">음, </span><span id="cmTotalDur">0초</span>)</div>
+        <div id="cmNoteList" style="display:flex; flex-wrap:wrap; gap:6px;"></div>
+        <div id="cmEmptyHint" style="color:var(--text-faint); font-size:12px; text-align:center; padding:20px;">위에서 음을 추가하세요</div>
+      </div>
+
+      <!-- Preview -->
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px;">
+        <button class="btn-secondary" id="cmPreviewBrowser"><span data-i18n="btn_preview_browser">🔊 브라우저 미리듣기</span></button>
+        <button class="btn-secondary" id="cmPreviewPrinter"><span data-i18n="btn_preview_printer">📥 프린터 G-code 다운로드</span></button>
+      </div>
+
+      <!-- Saved melodies -->
+      <div style="border-top:1px solid var(--line); padding-top:12px;">
+        <div class="field-label" style="color:var(--accent); margin-bottom:8px;">▸ 저장된 커스텀 멜로디 (<span id="cmSavedCount">0</span>개, 무제한 추가)</div>
+        <div id="cmSavedList" style="display:flex; flex-direction:column; gap:6px; max-height:240px; overflow-y:auto;"></div>
+        <div id="cmSavedEmpty" style="color:var(--text-faint); font-size:12px; text-align:center; padding:8px;">저장된 멜로디 없음 — 위에서 만들어 저장하세요</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" id="cmClear"><span data-i18n="btn_new_melody">🆕 새 멜로디 (현재 작업 비우기)</span></button>
+      <button class="btn-primary" id="cmSave" style="padding:10px 24px;"><span data-i18n="btn_save_melody">💾 저장 (자동으로 다음 멜로디 준비)</span></button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- ============================================================ -->
+<!-- DRY-RUN options modal                                         -->
+<!-- ============================================================ -->
+<div class="modal-backdrop" id="dryRunModal" style="display:none;">
+  <div class="modal-card">
+    <div class="modal-header">
+      <span style="color:var(--accent); font-weight:700; letter-spacing:0.15em;">⚡ DRY-RUN 옵션</span>
+      <button class="modal-close" id="drCancel">×</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:12px; color:var(--text-dim); margin-bottom:14px; line-height:1.5;">
+        실제 인쇄 없이 자동화 시퀀스만 검증합니다.<br>
+        포함할 phase를 선택하세요. <strong style="color:var(--accent);">대기 OFF</strong>는 M190/M109 등 온도 도달 대기를 생략하여 빠른 검증이 가능합니다.
+      </p>
+
+      <div class="dr-row">
+        <label class="dr-toggle">
+          <input type="checkbox" id="dr_include_cooling" checked>
+          <span class="dr-label">냉각 시퀀스 포함</span>
+        </label>
+        <label class="dr-toggle dr-sub">
+          <input type="checkbox" id="dr_wait_cooling">
+          <span class="dr-label">└ 냉각 완료 대기 (M190 R)</span>
+        </label>
+      </div>
+
+      <div class="dr-row">
+        <label class="dr-toggle">
+          <input type="checkbox" id="dr_include_eject" checked>
+          <span class="dr-label">분리(스윕) 시퀀스 포함 <span style="color:var(--accent); font-size:10px;">★ 핵심</span></span>
+        </label>
+      </div>
+
+      <div class="dr-row">
+        <label class="dr-toggle">
+          <input type="checkbox" id="dr_include_reheat" checked>
+          <span class="dr-label">재가열 시퀀스 포함</span>
+        </label>
+        <label class="dr-toggle dr-sub">
+          <input type="checkbox" id="dr_wait_reheat">
+          <span class="dr-label">└ 재가열 완료 대기 (M190/M109)</span>
+        </label>
+      </div>
+
+      <div class="dr-row">
+        <label class="dr-toggle">
+          <input type="checkbox" id="dr_include_reset" checked>
+          <span class="dr-label">리셋 (재호밍/퍼지) 포함</span>
+        </label>
+      </div>
+
+      <div style="border-top:1px solid var(--line); margin:14px 0 10px; padding-top:10px;">
+        <div style="font-size:11px; color:var(--text-faint); text-transform:uppercase; letter-spacing:0.15em; margin-bottom:8px;">▸ 시작 시퀀스 최적화</div>
+        <label class="dr-toggle">
+          <input type="checkbox" id="dr_minimal_start">
+          <span class="dr-label">⚡ 최소 시작 시퀀스 (캘리브레이션 생략)</span>
+        </label>
+        <div class="field-hint" style="margin-left:26px; line-height:1.5; margin-top:2px; margin-bottom:8px;">
+          유지: <strong style="color:var(--green);">G28 (Z/XY 호밍), 가열, AMS 로드</strong><br>
+          제거: <strong style="color:var(--yellow);">오토 레벨링(G29), 유량/진동 보정, 필라멘트 프라이밍, 노즐 와이프 반복</strong>
+        </div>
+
+        <label class="dr-toggle">
+          <input type="checkbox" id="dr_skip_ams_load">
+          <span class="dr-label">🚫 AMS 필라멘트 로드 스킵</span>
+        </label>
+        <div class="field-hint" style="margin-left:26px; line-height:1.5; margin-top:2px; margin-bottom:8px;">
+          추가 제거: <strong style="color:var(--yellow);">T0/M620/M621 (AMS 슬롯 선택), 플러싱 블록(E45)</strong><br>
+          <span style="color:var(--text-faint);">→ 필라멘트 없이 순수 가열 + 스윕 + 클리닝 테스트. 종료 시 간소화됨.</span>
+        </div>
+      </div>
+
+      <div style="border-top:1px solid var(--line); margin:14px 0 10px; padding-top:10px;">
+        <div style="font-size:11px; color:var(--text-faint); text-transform:uppercase; letter-spacing:0.15em; margin-bottom:8px;">▸ 반복 사이클</div>
+        <div class="field">
+          <div class="field-row">
+            <div>
+              <div class="field-label">사이클 수</div>
+              <div class="field-hint">1~10 회 반복 — 각 사이클 사이에 가짜 body 삽입</div>
+            </div>
+            <input type="number" id="dr_cycles" value="1" min="1" max="10" style="width:80px;" />
+          </div>
+        </div>
+      </div>
+
+      <div class="dr-info" id="drInfo">
+        시뮬레이션 — 인쇄높이 <strong id="drInfoH">40</strong>mm /
+        노즐 <strong id="drInfoN">220</strong>°C / 베드 <strong id="drInfoB">55</strong>°C
+        <br><span id="drInfoSample" style="color:var(--text-faint);">시작 G-code: 기본값 (업로드 파일 없음)</span>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" id="drCancel2">취소</button>
+      <button class="btn-primary" id="drGenerate" style="padding:10px 24px;">▶ 생성</button>
+    </div>
+  </div>
+</div>
+
+<style>
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(0,0,0,0.7);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono);
+}
+.modal-card {
+  background: var(--bg-1); border: 1px solid var(--accent-dim);
+  width: min(540px, 92vw);
+  max-height: 88vh; overflow: auto;
+  box-shadow: 0 0 60px rgba(255,122,47,0.15);
+}
+.modal-header {
+  padding: 14px 20px; border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 12px;
+}
+.modal-close {
+  background: none; border: none; color: var(--text-dim);
+  font-size: 22px; cursor: pointer; line-height: 1;
+}
+.modal-close:hover { color: var(--accent); }
+.modal-body { padding: 20px; }
+.modal-footer {
+  padding: 14px 20px; border-top: 1px solid var(--line);
+  background: var(--bg-2);
+  display: flex; justify-content: flex-end; gap: 10px;
+}
+.dr-row { margin-bottom: 12px; }
+.dr-toggle {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 13px; color: var(--text);
+  padding: 6px 0; cursor: pointer;
+}
+.dr-toggle input[type="checkbox"] {
+  width: 16px; height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.dr-toggle.dr-sub {
+  margin-left: 24px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.dr-info {
+  margin-top: 16px; padding: 10px 12px;
+  background: var(--bg-2); border-left: 2px solid var(--cyan);
+  font-size: 11px; color: var(--text-dim); line-height: 1.6;
+}
+.dr-info strong { color: var(--cyan); }
+</style>
+
+<script>
+// ============================================================
+// i18n — UI text translations (KO ↔ EN)
+// ============================================================
+const I18N = {
+  ko: {
+    sys_ready: 'SYS READY',
+    panel_upload: 'G-CODE 업로드',
+    panel_settings: '자동화 시퀀스 설정',
+    section_cooling: '◢ 냉각 시퀀스',
+    section_eject: '◢ 분리(밀어내기) 시퀀스',
+    section_reheat: '◢ 재가열 / 리셋',
+    section_sound: '◢ 사운드 알림 (M1006)',
+    bed_detach_temp: '베드 분리 온도',
+    chamber_temp: '챔버 식힘 온도',
+    bed_size_x: '베드 크기 X',
+    bed_size_y: '베드 크기 Y',
+    method: '방식',
+    x_passes: 'X 패스 수',
+    z_steps: 'Z 하강 단수',
+    back_overhang: '베드 후방 오버행',
+    front_overhang: '베드 전방 오버행',
+    btn_generate: '▶ 통합 G-CODE 생성',
+    btn_dryrun: '⚡ Dry-run G-code 생성 (시퀀스만 검증)',
+    btn_reset: '초기화',
+    btn_download: '↓ 다운로드',
+    btn_custom_melody: '🎼 커스텀 멜로디 만들기',
+    modal_melody_builder: '🎼 커스텀 멜로디 빌더',
+    btn_save_melody: '💾 저장 (자동으로 다음 멜로디 준비)',
+    btn_new_melody: '🆕 새 멜로디 (현재 작업 비우기)',
+    btn_preview_browser: '🔊 브라우저 미리듣기',
+    btn_preview_printer: '📥 프린터 G-code 다운로드',
+    result_complete: '✓ 생성 완료',
+    result_filename: '파일명',
+    result_size: '크기',
+    result_lines: '총 라인',
+    result_copies: '총 인쇄',
+    sound_event_start: '🎬 프린팅 최초 시작 (start_gcode 안)',
+    sound_event_done: '🖨️ 프린팅 완료 (냉각 직전)',
+    sound_event_cool: '❄️ 냉각 완료 (분리 직전)',
+    sound_event_sweep: '🧹 스윕 완료 (재가열 직전)',
+    sound_event_restart: '🔄 재시작 (다음 인쇄 직전)',
+    sound_event_end: '🎉 프린팅 모두 완료 (end_gcode 안)',
+    safety_moves: '이동 명령',
+    safety_bbox: '실제 BBox',
+    safety_printable: '인쇄 영역',
+    safety_physical: '물리 한계',
+    safety_soft: '영역 밖',
+    safety_hard: '충돌 위험',
+    safety_details: '상세',
+    safety_recheck: '재검증',
+    sweep_preview: '▸ 스윕 미리보기',
+    sweep_play: '▶ 재생',
+    sweep_pause: '⏸ 일시정지',
+    sweep_speed: '속도',
+    sweep_collapse: '접기 ▾',
+    sweep_expand: '펼치기 ▸',
+    catalog_all: '전체 (기본 + 커스텀)',
+    catalog_builtin: '기본 프리셋만',
+    catalog_custom: '내 커스텀 멜로디만',
+    catalog_label: '🔊 카탈로그 다운로드',
+    btn_catalog: '↓ 카탈로그 G-code 다운로드',
+    sound_keep_default: '🔇 (Bambu 기본값 유지)',
+    m73_section: '📊 M73 진행률 재계산',
+    m73_override: '사이클당 추가 시간 (분)',
+    modal_melody_label: '멜로디',
+    parking_z_group: '📐 파킹 Z 계산',
+    parking_z_min: '파킹 Z 최소값',
+    parking_z_clearance: '인쇄물 위 여유',
+    parking_z_min_hint: '절대 baseline (작은 인쇄물 보호)',
+    parking_z_clearance_hint: '큰 인쇄물에 자동 여유 추가',
+  },
+  en: {
+    sys_ready: 'SYS READY',
+    panel_upload: 'G-CODE UPLOAD',
+    panel_settings: 'AUTOMATION SETTINGS',
+    section_cooling: '◢ Cooling Sequence',
+    section_eject: '◢ Eject (Sweep) Sequence',
+    section_reheat: '◢ Reheat / Reset',
+    section_sound: '◢ Sound Notifications (M1006)',
+    bed_detach_temp: 'Bed Detach Temperature',
+    chamber_temp: 'Chamber Cool-down Temp',
+    bed_size_x: 'Bed Size X',
+    bed_size_y: 'Bed Size Y',
+    method: 'Method',
+    x_passes: 'X Pass Count',
+    z_steps: 'Z Descent Steps',
+    back_overhang: 'Back Overhang',
+    front_overhang: 'Front Overhang',
+    btn_generate: '▶ GENERATE COMBINED G-CODE',
+    btn_dryrun: '⚡ Generate Dry-run G-code (sequence only)',
+    btn_reset: 'Reset',
+    btn_download: '↓ Download',
+    btn_custom_melody: '🎼 Create Custom Melody',
+    modal_melody_builder: '🎼 Custom Melody Builder',
+    btn_save_melody: '💾 Save (auto-prepare next)',
+    btn_new_melody: '🆕 New Melody (clear current)',
+    btn_preview_browser: '🔊 Browser Preview',
+    btn_preview_printer: '📥 Download Printer G-code',
+    result_complete: '✓ Generation Complete',
+    result_filename: 'Filename',
+    result_size: 'Size',
+    result_lines: 'Total Lines',
+    result_copies: 'Total Prints',
+    sound_event_start: '🎬 Print Start (in start_gcode)',
+    sound_event_done: '🖨️ Print Done (before cooling)',
+    sound_event_cool: '❄️ Cool Done (before eject)',
+    sound_event_sweep: '🧹 Sweep Done (before reheat)',
+    sound_event_restart: '🔄 Restart (before next print)',
+    sound_event_end: '🎉 All Done (in end_gcode)',
+    safety_moves: 'Move Commands',
+    safety_bbox: 'Actual BBox',
+    safety_printable: 'Printable Area',
+    safety_physical: 'Physical Limit',
+    safety_soft: 'Out of Area',
+    safety_hard: 'Collision Risk',
+    safety_details: 'Details',
+    safety_recheck: 'Re-validate',
+    sweep_preview: '▸ Sweep Preview',
+    sweep_play: '▶ Play',
+    sweep_pause: '⏸ Pause',
+    sweep_speed: 'Speed',
+    sweep_collapse: 'Collapse ▾',
+    sweep_expand: 'Expand ▸',
+    catalog_all: 'All (Built-in + Custom)',
+    catalog_builtin: 'Built-in Only',
+    catalog_custom: 'My Custom Only',
+    catalog_label: '🔊 Catalog Download',
+    btn_catalog: '↓ Download Catalog G-code',
+    sound_keep_default: '🔇 (Keep Bambu Default)',
+    m73_section: '📊 M73 Progress Recalculation',
+    m73_override: 'Additional Time per Cycle (min)',
+    modal_melody_label: 'Melody',
+    parking_z_group: '📐 Parking Z Calculation',
+    parking_z_min: 'Parking Z Minimum',
+    parking_z_clearance: 'Clearance Above Print',
+    parking_z_min_hint: 'Absolute baseline (protects small prints)',
+    parking_z_clearance_hint: 'Auto-adds clearance for tall prints',
+  },
+};
+
+let currentLang = localStorage.getItem('bambuloop_lang') || 'ko';
+
+function t(key) {
+  return (I18N[currentLang] && I18N[currentLang][key]) || I18N['ko'][key] || key;
+}
+
+const KO_TO_EN = {
+  "▶ 통합 G-CODE 생성": "▶ GENERATE COMBINED G-CODE",
+  "⚡ Dry-run G-code 생성 (시퀀스만 검증)": "⚡ Generate Dry-run G-code (sequence only)",
+  "초기화": "Reset",
+  "↓ 다운로드": "↓ Download",
+  "↓ 카탈로그 G-code 다운로드": "↓ Download Catalog G-code",
+  "↻ 재검증": "↻ Re-validate",
+  "취소": "Cancel",
+  "상세": "Details",
+  "마진": "Margin",
+  "속도": "Speed",
+  "방식": "Method",
+  "길이:": "Length:",
+  "G-CODE 업로드": "G-CODE UPLOAD",
+  "자동화 시퀀스 설정": "AUTOMATION SETTINGS",
+  "✓ 생성 완료": "✓ Generation Complete",
+  "파일명:": "Filename:",
+  "크기:": "Size:",
+  "총 라인:": "Total Lines:",
+  "총 인쇄:": "Total Prints:",
+  "이동 명령:": "Move Commands:",
+  "실제 BBox:": "Actual BBox:",
+  "인쇄 영역:": "Printable Area:",
+  "물리 한계:": "Physical Limit:",
+  "⚠️ 영역 밖:": "⚠️ Out of Area:",
+  "⛔ 충돌 위험:": "⛔ Collision Risk:",
+  "브라우저 미리듣기": "Browser Preview",
+  "프린터 미리듣기": "Printer Preview",
+  "◢ 냉각 시퀀스": "◢ Cooling Sequence",
+  "◢ 분리(밀어내기) 시퀀스": "◢ Eject (Sweep) Sequence",
+  "◢ 리셋 / 안전 / 재가열": "◢ Reset / Safety / Reheat",
+  "◢ 사운드 알림 (M1006)": "◢ Sound Notifications (M1006)",
+  "▸ 스윕 미리보기": "▸ Sweep Preview",
+  "▸ 반복 사이클": "▸ Repeat Cycles",
+  "▸ 시작 시퀀스 최적화": "▸ Start Sequence Optimization",
+  "▸ 멜로디 (": "▸ Melody (",
+  "▸ 저장된 커스텀 멜로디 (": "▸ Saved Custom Melodies (",
+  "▸ 🎹 피아노 (들리는 음역대 C4~D6)": "▸ 🎹 Piano (audible range C4~D6)",
+  "▶ 재생": "▶ Play",
+  "▶ 생성": "▶ Generate",
+  "접기 ▾": "Collapse ▾",
+  "🎬 프린팅 최초 시작 (start_gcode 안)": "🎬 Print Start (in start_gcode)",
+  "🖨️ 프린팅 완료 (냉각 직전)": "🖨️ Print Done (before cooling)",
+  "❄️ 냉각 완료 (분리 직전)": "❄️ Cool Done (before eject)",
+  "🧹 스윕 완료 (재가열 직전)": "🧹 Sweep Done (before reheat)",
+  "🔄 재시작 (다음 인쇄 직전)": "🔄 Restart (before next print)",
+  "🎉 프린팅 모두 완료 (end_gcode 안)": "🎉 All Done (in end_gcode)",
+  "🎼 커스텀 멜로디 만들기": "🎼 Create Custom Melody",
+  "🎼 커스텀 멜로디 빌더": "🎼 Custom Melody Builder",
+  "💾 저장 (자동으로 다음 멜로디 준비)": "💾 Save (auto-prepare next)",
+  "🆕 새 멜로디 (현재 작업 비우기)": "🆕 New Melody (clear current)",
+  "🔊 브라우저 미리듣기": "🔊 Browser Preview",
+  "📥 프린터 G-code 다운로드": "📥 Download Printer G-code",
+  "+ 휴지": "+ Rest",
+  "멜로디 이름": "Melody Name",
+  "음,": "notes,",
+  "0.2초": "0.2s",
+  "0초": "0s",
+  "위에서 음을 추가하세요": "Add notes above",
+  "저장된 멜로디 없음 — 위에서 만들어 저장하세요": "No saved melodies — create one above",
+  "음표를 추가/순서변경/삭제해서 멜로디를 만드세요.": "Add / reorder / delete notes to compose your melody.",
+  "건반을 클릭하면 즉시 노트 추가 + 미리듣기. 길이는 아래 슬라이더로 미리 설정.": "Click a key to instantly add a note with preview. Set length on the slider first.",
+  "나만의 멜로디 생성 + 미리듣기. 저장하면 위 4개 이벤트 드롭다운에서 ★ 표시로 선택 가능.": "Create + preview your own melody. Once saved, select it in the event dropdowns above (marked with ★).",
+  "는 즉시 가능 (모터 음과 다름),": "is instant (differs from motor sound),",
+  "는 G-code 다운로드 후 프린터에서 실행.": "requires downloading G-code and running on the printer.",
+  "개, 무제한 추가)": ", unlimited)",
+  "베드 분리 온도": "Bed Detach Temperature",
+  "냉각 반복 횟수": "Cooling Retries",
+  "M190 R 반복 (1~30, 기본 5). 많을수록 낮은 온도까지 도달": "M190 R retry count (1-30, default 15)",
+  "챔버 냉각 목표": "Chamber Cool Target",
+  "0 = 챔버 대기 안 함": "0 = No chamber wait",
+  "팬 제어 (개별 ON/OFF)": "Fan Control (per-fan ON/OFF)",
+  "파트 쿨링": "Part Cooling",
+  "AUX 보조 팬": "AUX Aux Fan",
+  "챔버 배기": "Chamber Exhaust",
+  "토글 OFF 시 명시적 M106 P<n> S0 전송 (잔류 상태 차단)": "When OFF, send explicit M106 P<n> S0 (block residual state)",
+  "파킹 Z 최소값": "Parking Z Minimum",
+  "실제값 = max(이값, 인쇄물높이 + 여유)": "Actual = max(this value, print height + clearance)",
+  "인쇄물 위 여유": "Clearance Above Print",
+  "파킹 시 노즐~인쇄물 거리 (mm)": "Nozzle-to-print distance during parking (mm)",
+  "베드 X (mm)": "Bed X (mm)",
+  "베드 Y (mm)": "Bed Y (mm)",
+  "후방 베드밖 거리 ⚡": "Back Off-bed Distance ⚡",
+  "Y = (bedY + this value) — 헤드를 베드 밖으로 보낸 뒤 Z 하강 (인쇄물 누름 방지)": "Y = (bedY + this) — Move head off-bed before lowering Z (avoid pressing print)",
+  "전방 베드밖 거리": "Front Off-bed Distance",
+  "Y=−이값 — 베드 앞면 넘어 인쇄물 낙하 보장": "Y=−this — Pushes past front edge to ensure part falls off",
+  "Y축 스윕 횟수 (X 분할)": "Y-axis sweep count (X divisions)",
+  "한 단계에서 X 위치 몇 번 분할하여 스윕할지": "How many X positions to sweep at each Z step",
+  "하강 단계 수 ⚡": "Descent Steps ⚡",
+  "위→아래 분할 횟수 (1=한번에)": "Top→bottom divisions (1 = single pass)",
+  "파킹 Z 여유 ⚡": "Parking Z Clearance ⚡",
+  "XY 파킹 시 인쇄물 위 여유 (mm)": "Clearance above print for XY parking (mm)",
+  "최종 스윕 Z 오프셋": "Final Sweep Z Offset",
+  "베드 표면 위 노즐 높이 (mm)": "Nozzle height above bed surface (mm)",
+  "스윕 속도": "Sweep Speed",
+  "분리 후 일시정지 ⚡ (Handy 카메라로 검증)": "Pause after eject ⚡ (verify with Handy camera)",
+  "M400 U1 삽입. Bambu Handy/Studio에서 'Resume'으로 재개": "Insert M400 U1. Resume via Bambu Handy/Studio.",
+  "XY 재호밍 (인쇄 사이)": "XY Re-home (between prints)",
+  "Z 재호밍 (느림, 정밀 필요 시)": "Z Re-home (slow, only when precision needed)",
+  "플러싱 + 클리닝 (Bambu 표준 ⚡)": "Purge + Clean (Bambu standard ⚡)",
+  "업로드 .gcode의 블록 자동 추출·재사용 (슬라이서가 필라멘트별로 튜닝한 값)": "Auto-extract block from uploaded .gcode (slicer-tuned per filament)",
+  "노즐 클리닝 (G150.1)": "Nozzle Cleaning (G150.1)",
+  "Bambu 플러싱 블록에 이미 포함됨. 플러싱 fallback 시에만 개별 적용.": "Already in Bambu purge block. Only applied separately on purge fallback.",
+  "Fallback 시만 사용": "Fallback Only",
+  "Bambu 블록 없을 때 수동 E 압출량 (legacy, 무시됨)": "Manual E extrude length when Bambu block absent (legacy, ignored)",
+  "📊 M73 진행률 재계산": "📊 M73 Progress Recalculation",
+  "항상 ON": "always ON",
+  "— 인쇄 사이 POST_PRINT 시간만 미세조정 가능.": "— only POST_PRINT time between prints is adjustable.",
+  "원본 G-code 헤더의 시간을 기반으로 전체 bambuloop 누적 진행률 자동 계산.": "Auto-recalculate cumulative bambuloop progress based on original G-code header time.",
+  "사이클당 추가 시간 (분)": "Additional Time per Cycle (min)",
+  "0 = 자동 추정 (냉각/분리/재가열/리셋 합산)": "0 = Auto-estimate (cool/eject/reheat/reset sum)",
+  "🔊 카탈로그 다운로드": "🔊 Catalog Download",
+  "전체 (기본 + 커스텀)": "All (Built-in + Custom)",
+  "기본 프리셋만": "Built-in Only",
+  "내 커스텀 멜로디만": "My Custom Only",
+  "각 프리셋 2초 간격 순차 재생.": "Sequentially play each preset with 2s interval.",
+  "각 이벤트마다 다른 멜로디를 선택할 수 있습니다.": "Select a different melody for each event.",
+  "는 Bambu 정품 사운드를 우리 사운드로 교체합니다.": "replaces Bambu default sound with our sound.",
+  "시작/종료 사운드": "Start/End Sound",
+  "다중 스윕": "Multi Sweep",
+  "좌우 교차": "Edge-to-Center",
+  "좌우 교차 (바닥 고정)": "Edge-to-Center (Bottom)",
+  "바닥 반복 (낮은 오브젝트)": "Bottom Only (short objects)",
+  "단일 스윕": "Single Sweep",
+  "지그재그": "Zigzag",
+  "사용 안 함": "None",
+  "클릭하거나 드래그하여 G-code 파일 추가": "Click or drag to add G-code files",
+  "(Bambu Studio 내보내기 그대로) · 다중 업로드 가능": "(Bambu Studio export as-is) · Multi-upload supported",
+  "지원: .gcode, .gco, .g,": "Supported: .gcode, .gco, .g,",
+  "업로드된 작업이 없습니다. 위 영역에 G-code 파일을 추가하세요.": "No uploaded jobs. Add G-code files above.",
+  "⚡ DRY-RUN 옵션": "⚡ DRY-RUN OPTIONS",
+  "실제 인쇄 없이 자동화 시퀀스만 검증합니다.": "Validate automation sequence only (no actual print).",
+  "→ 필라멘트 없이 순수 가열 + 스윕 + 클리닝 테스트. 종료 시 간소화됨.": "→ Pure heat + sweep + clean test without filament. Simplified termination.",
+  "시뮬레이션 — 인쇄높이": "Simulation — Print Height",
+  "⚡ 최소 시작 시퀀스 (캘리브레이션 생략)": "⚡ Minimal Start (skip calibration)",
+  "제거:": "Removed:",
+  "추가 제거:": "Also removed:",
+  "오토 레벨링(G29), 유량/진동 보정, 필라멘트 프라이밍, 노즐 와이프 반복": "Auto-leveling (G29), flow/vibration calib, filament priming, nozzle wipe loop",
+  "유지:": "Kept:",
+  "★ 핵심": "★ Core",
+  "G28 (Z/XY 호밍), 가열, AMS 로드": "G28 (Z/XY home), heating, AMS load",
+  "🚫 AMS 필라멘트 로드 스킵": "🚫 Skip AMS Filament Load",
+  "T0/M620/M621 (AMS 슬롯 선택), 플러싱 블록(E45)": "T0/M620/M621 (AMS slot select), purge block (E45)",
+  "시작 G-code: 기본값 (업로드 파일 없음)": "Start G-code: defaults (no uploaded file)",
+  "는 M190/M109 등 온도 도달 대기를 생략하여 빠른 검증이 가능합니다.": "skips M190/M109 wait-for-temp commands for fast validation.",
+  "냉각 시퀀스 포함": "Include Cooling",
+  "└ 냉각 완료 대기 (M190 R)": "└ Wait for cool done (M190 R)",
+  "재가열 시퀀스 포함": "Include Reheat",
+  "└ 재가열 완료 대기 (M190/M109)": "└ Wait for reheat done (M190/M109)",
+  "대기 OFF": "wait OFF",
+  "분리(스윕) 시퀀스 포함": "Include Eject (Sweep)",
+  "리셋 (재호밍/퍼지) 포함": "Include Reset (re-home/purge)",
+  "사이클 수": "Cycle Count",
+  "1~10 회 반복 — 각 사이클 사이에 가짜 body 삽입": "1–10 cycles — fake body inserted between cycles",
+  "실행 후": "After execution",
+  "포함할 phase를 선택하세요.": "Select phases to include.",
+  "가비지 캔으로 필라멘트 배출(E45) + G150.1 와이프 — 베드에 잔여물 없음.": "Dump filament to garbage can (E45) + G150.1 wipe — no residue on bed.",
+  "값을 바꾸면 즉시 반영됩니다. 헤드 마커는 실제 동작 순서대로 움직입니다.": "Changes apply instantly. Head marker moves in actual operation order.",
+  "스윕 1/4 · Z단 1/4": "Sweep 1/4 · Z 1/4",
+  "Y (앞 ← → 뒤)": "Y (front ← → back)",
+  "Z단": "Z",
+  "파일 업로드 / G-code 생성 / 다운로드 모두 Flask 백엔드가 필요합니다.": "File upload / G-code generation / download all require Flask backend.",
+  "&nbsp;·&nbsp;\n  이 HTML 파일을 직접 열면 동작하지 않습니다. 터미널에서": "&nbsp;·&nbsp;\n  Opening this HTML file directly will not work. From terminal",
+  "으로 접속하세요.": " to access.",
+  "⚠ 잘못된 실행 방법": "⚠ Wrong execution method",
+  "BambuLoop — Bambu H2S 자동 반복 인쇄": "BambuLoop — Bambu H2S Auto-Repeat Print",
+  "${job.info.body_lines.toLocaleString()} ${currentLang === 'en' ? 'lines' : '라인'}": "${job.info.body_lines.toLocaleString()} lines",
+  "${notes.length}음 / ${totalSec}초": "${notes.length} notes / ${totalSec}s",
+  "mm /\n        노즐": "mm /\n        Nozzle",
+  "°C / 베드": "°C / Bed",
+  "↓ .gcode.3mf 다운로드 (AMS 인식)": "↓ Download .gcode.3mf (AMS-aware)",
+  "↓ .gcode 다운로드": "↓ Download .gcode",
+  "⟳ 생성 중...": "⟳ Generating...",
+  "✓ 생성 완료": "✓ Generation Complete",
+  "⚠️ 영역 밖 이동 있음 — 물리 한계 안 (정상 wipe/purge 가능성)": "⚠️ Out-of-area moves — within physical limit (normal wipe/purge likely)",
+  "🟢 안전 — 모든 이동이 인쇄 영역 안": "🟢 Safe — all moves within printable area",
+  "🔴 충돌 위험 — 물리 한계 초과": "🔴 Collision risk — exceeds physical limit",
+  "🟡 영역 밖 이동 있음 — 물리 한계 안": "🟡 Out-of-area — within physical limit",
+  "헤더에서 자동 인식": "Auto-detected from header",
+  "헤더 없음 — H2S 기본값(340×320×340)": "No header — H2S defaults (340×320×340)",
+  "인쇄 영역:": "Printable Area:",
+  "물리 한계:": "Physical Limit:",
+  "실제 BBox:": "Actual BBox:",
+  "이동 명령:": "Move Commands:",
+  "파일명:": "Filename:",
+  "크기:": "Size:",
+  "총 라인:": "Total Lines:",
+  "총 인쇄:": "Total Prints:",
+  "마진": "Margin",
+  "🔇 (Bambu 기본값 유지)": "🔇 (Keep Bambu Default)",
+  "🔇 (Bambu 기본값 유지)": "🔇 (Keep Bambu Default)"
+};
+
+// Translate every text node bidirectionally KO ↔ EN (without needing data-i18n markers)
+const EN_TO_KO = (() => {
+  const inv = {};
+  for (const k in KO_TO_EN) inv[KO_TO_EN[k]] = k;
+  return inv;
+})();
+
+let _origTextSnapshot = new Map();   // textNode → 원본 한국어 텍스트 캐시
+
+function snapshotOriginalText() {
+  // On first call, snapshot every text node's original Korean text
+  if (_origTextSnapshot.size > 0) return;
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) => {
+      // skip <script> and <style>
+      const tag = node.parentNode && node.parentNode.tagName;
+      if (tag === 'SCRIPT' || tag === 'STYLE') return NodeFilter.FILTER_REJECT;
+      const txt = node.nodeValue && node.nodeValue.trim();
+      if (!txt) return NodeFilter.FILTER_REJECT;
+      // only nodes that contain Korean
+      if (!/[\u3131-\uD79D]/.test(txt)) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    }
+  });
+  let n;
+  while ((n = walker.nextNode())) _origTextSnapshot.set(n, n.nodeValue);
+}
+
+function translateTextNodes() {
+  // Switch to English: map original (KO) → English
+  // Switch to Korean: restore English → original (KO)
+  if (currentLang === 'en') {
+    snapshotOriginalText();   // 한 번만
+    _origTextSnapshot.forEach((orig, node) => {
+      // Only the trimmed portion of the original text is looked up
+      const trimmed = orig.trim();
+      if (KO_TO_EN[trimmed]) {
+        // Preserve surrounding whitespace
+        const leading = orig.match(/^\s*/)[0];
+        const trailing = orig.match(/\s*$/)[0];
+        node.nodeValue = leading + KO_TO_EN[trimmed] + trailing;
+      }
+    });
+    // <option> text (dropdowns) — handled separately
+    document.querySelectorAll('option').forEach(opt => {
+      const t = opt.textContent.trim();
+      if (KO_TO_EN[t]) opt.textContent = KO_TO_EN[t];
+    });
+  } else {
+    // Restore Korean
+    _origTextSnapshot.forEach((orig, node) => {
+      node.nodeValue = orig;
+    });
+  }
+}
+
+function applyI18n() {
+  // Marked data-i18n elements
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.dataset.i18n;
+    const val = t(key);
+    if (val) el.textContent = val;
+  });
+  // Traversal-based translation (every unmarked Korean text)
+  translateTextNodes();
+  document.documentElement.lang = currentLang;
+  // Update the toggle button label
+  const tb = document.getElementById('langToggle');
+  if (tb) tb.textContent = currentLang === 'ko' ? 'EN' : '한국어';
+}
+
+// ============================================================
+// Tooltips (ⓘ icon) — KO/EN dictionary + hover handler
+// ============================================================
+const TIP_TEXTS = {
+  cooling_retries_tip: {
+    ko: '<strong>냉각 대기 반복 횟수</strong><br>Marlin/Klipper의 <code>MIN_COOLING_SLOPE_DEG_BED</code> 안전장치는 1분 동안 베드 온도가 1.5°C 이상 떨어지지 않으면 무한 대기 방지를 위한 failsafe로 <code>M190 R</code> 호출을 종료합니다. 이로 인해 목표 온도에 도달하지 않은 채 냉각이 완료된 것으로 처리되어, 충분히 식지 않은 상태에서 스윕이 시작될 수 있습니다. 이 경우 프린터에 심각한 손상을 줄 수 있으며, H2S 같은 큰 베드에서는 42°C 부근에서 특히 자주 발생합니다.<br><br>목표값으로 <code>M190 R</code>을 여러 번 호출하면 매 호출마다 slope timer가 초기화되어, 추가로 1~2°C씩 더 내려갈 기회를 얻을 수 있습니다.<br><br>· 기본적으로 최소 3~5회를 권장합니다<br>· 실내가 덥거나 베드가 큰 경우 5~7회<br>· 각 호출은 냉각을 위해 최소 60초(slope timeout) 대기합니다<br><br>참고: <a href="https://github.com/MarlinFirmware/Marlin/pull/17877" target="_blank">Marlin PR #17877</a>',
+    en: '<strong>Cooling Wait Retry Count</strong><br>Marlin/Klipper\'s <code>MIN_COOLING_SLOPE_DEG_BED</code> safety check terminates an <code>M190 R</code> call as a failsafe against infinite waits if the bed temperature drops less than 1.5°C over 60 seconds. As a result, cooling can be reported complete before the target is actually reached, and the sweep may begin while the bed is still too hot — potentially causing serious damage to the printer. This is especially common on large beds like the H2S around 42°C.<br><br>Calling <code>M190 R</code> multiple times with the target value resets the slope timer on each call, giving the bed another 1~2°C drop per retry.<br><br>· 3~5 retries recommended as a baseline<br>· Warm rooms or large beds: 5~7 retries<br>· Each call waits at least 60s (slope timeout) for cooling<br><br>Ref: <a href="https://github.com/MarlinFirmware/Marlin/pull/17877" target="_blank">Marlin PR #17877</a>',
+  },
+  bed_detach_tip: {
+    ko: '<strong>베드 분리 온도</strong><br>인쇄가 끝난 후 베드를 이 온도까지 식힙니다. 베드와 인쇄물의 열팽창 차이로 자연스럽게 분리됩니다.<br><br>· PLA: 35°C<br>· PETG: 35°C<br>· ABS/ASA: 40°C<br><br>40°C가 안전 상한입니다 (그 이상에서 분리 시도 시 인쇄물이 베드에 융착될 수 있음).<br><br>⚙️ <em>Marlin/Klipper의 M190 R 타임아웃을 우회하기 위해 M190 R을 여러 번 반복 호출합니다. 반복 횟수는 아래 "냉각 대기 반복 횟수" 필드에서 조정 가능합니다.</em>',
+    en: '<strong>Bed Detach Temperature</strong><br>Cools the bed to this temperature after print. Differential thermal contraction releases the part naturally.<br><br>· PLA: 35°C<br>· PETG: 35°C<br>· ABS/ASA: 40°C<br><br>40°C is the safe upper limit (above this, parts may fuse to the bed).<br><br>⚙️ <em>To bypass the M190 R timeout, the tool calls M190 R multiple times with the target value. Adjust the retry count in the "Cooling Wait Retries" field below.</em>',
+  },
+  parking_z_tip: {
+    ko: '<strong>파킹 Z 계산</strong><br>인쇄 후 노즐을 어느 높이로 들어올릴지 결정합니다.<br><br><span style="color:#5fc8ff;">최소값(minimum)</span>: 절대 baseline. 작은 인쇄물에서도 노즐이 베드에 너무 가까이 있지 않게 합니다.<br><br><span style="color:#ffaa55;">여유(clearance)</span>: 인쇄물 위 추가 공간. 큰 인쇄물에서는 baseline으로 부족하므로 (인쇄물 높이 + 여유)로 자동 계산.<br><br>둘 중 큰 값이 적용되어 작은 인쇄물 + 큰 인쇄물 모두 안전합니다.',
+    en: '<strong>Parking Z Calculation</strong><br>Determines how high to lift the nozzle after print.<br><br><span style="color:#5fc8ff;">Minimum</span>: absolute baseline. Even with tiny prints, the nozzle stays this far from the bed.<br><br><span style="color:#ffaa55;">Clearance</span>: extra space above the print. For tall prints, the baseline is not enough; (print_height + clearance) is used instead.<br><br>The larger of the two is applied — safe for both small and large prints.',
+  },
+  eject_z_offset_tip: {
+    ko: '<strong>최종 스윕 Z 오프셋</strong><br>분리 스윕의 마지막 단계에서 노즐과 베드 사이 거리. 0에 가까울수록 강하게 밀어냅니다.<br><br>· 0.4mm 권장 (일반)<br>· 0.2mm (얇은 인쇄물 - 강한 분리)<br>· 0.6mm (베드 보호 우선)<br><br>너무 작으면 노즐이 베드에 닿을 위험이 있습니다.',
+    en: '<strong>Final Sweep Z Offset</strong><br>Distance between nozzle and bed on the last sweep step. Closer = stronger push.<br><br>· 0.4mm recommended (default)<br>· 0.2mm (thin parts - aggressive eject)<br>· 0.6mm (bed protection priority)<br><br>Too small risks nozzle-bed contact.',
+  },
+  initial_z_clearance_tip: {
+    ko: '<strong>파킹 Z 여유</strong><br>XY 파킹 시 노즐이 인쇄물 위로 얼마나 떠있을지. 파킹 후 Z를 인쇄물 꼭대기까지 내려서 첫 스윕을 시작합니다.<br><br>· 10mm 권장 (안전 여유)<br>· 너무 작으면 XY 이동 중 인쇄물 측면 충돌 위험<br>· 너무 크면 분리 시간 증가',
+    en: '<strong>Parking Z Clearance</strong><br>How high above the print the nozzle parks before sweep. After parking, Z descends to print top for the first sweep pass.<br><br>· 10mm recommended (safety margin)<br>· Too small risks side collision during XY parking<br>· Too large adds time',
+  },
+  descent_steps_tip: {
+    ko: '<strong>하강 단계 수</strong><br>인쇄물 꼭대기에서 최종 Z 오프셋까지 몇 단계로 나누어 하강할지.<br><br>· 4단계 권장 (균형)<br>· 1단계 = 한번에 (빠르지만 거친 분리)<br>· 8단계 = 매우 부드러움 (시간 ↑)<br><br>각 단계마다 Y축 스윕을 실행합니다.',
+    en: '<strong>Descent Steps</strong><br>How many steps to descend from print top to final Z offset.<br><br>· 4 steps recommended (balanced)<br>· 1 = single pass (fast but rough)<br>· 8 = very smooth (slower)<br><br>Each step executes Y-axis sweeps.',
+  },
+  sweep_speed_tip: {
+    ko: '<strong>스윕 속도</strong><br>분리 스윕 시 헤드 이동 속도 (mm/min).<br><br>· 3000 mm/min 권장 (50 mm/sec)<br>· 빠를수록 분리력 ↑ (관성)<br>· 너무 빠르면 헤드 점프/스킵 발생 가능',
+    en: '<strong>Sweep Speed</strong><br>Head movement speed during eject sweep (mm/min).<br><br>· 3000 mm/min recommended (50 mm/sec)<br>· Faster = more eject force (momentum)<br>· Too fast may cause head skipping',
+  },
+  x_passes_tip: {
+    ko: '<strong>Y축 스윕 횟수 (X 분할)</strong><br>한 Z 단계에서 X축 위치를 몇 번 분할하여 스윕할지.<br><br>· 7회 권장 (베드 X=340mm ÷ 헤드 폭 ~50mm)<br>· 바닥 반복 모드에서는 20~30회 권장 (많이 쓸수록 분리력 ↑)<br>· 적으면 인쇄물이 헤드 사이를 통과해 안 밀릴 수 있음<br>· 많으면 시간 ↑',
+    en: '<strong>Y-axis Sweep Count (X Divisions)</strong><br>How many X positions to sweep at each Z step.<br><br>· 7 recommended (bed X=340mm ÷ head width ~50mm)<br>· For bottom-only mode: 20~30 recommended (more sweeps = more force)<br>· Too few may let parts slip between head positions<br>· Too many adds time',
+  },
+  back_overhang_tip: {
+    ko: '<strong>베드 후방 오버행</strong><br>스윕 시작 전 헤드를 베드 뒤쪽 밖으로 얼마나 보낼지.<br><br>Y = (bed_size_y + 이 값)<br><br>· 15mm 권장<br>· 너무 작으면 Z 하강 시 인쇄물을 누름<br>· 너무 크면 후방 한계 스위치 충돌 위험',
+    en: '<strong>Back Off-bed Distance</strong><br>How far past the back of the bed to send the head before sweeping.<br><br>Y = (bed_size_y + this value)<br><br>· 15mm recommended<br>· Too small may press the print during Z descent<br>· Too large risks rear limit switch collision',
+  },
+  front_overhang_tip: {
+    ko: '<strong>베드 전방 오버행</strong><br>스윕 종료 시 헤드가 베드 앞쪽 밖으로 얼마나 갈지.<br><br>Y = -(이 값)<br><br>· 5mm 권장<br>· 베드 가장자리만 넘으면 인쇄물 낙하 보장<br>· 작아도 됨 (베드 가장자리에서만 떨어지면 OK)',
+    en: '<strong>Front Off-bed Distance</strong><br>How far past the front of the bed the head goes at sweep end.<br><br>Y = -(this value)<br><br>· 5mm recommended<br>· Just past the front edge ensures part drops off<br>· Can be small (just needs to clear edge)',
+  },
+  fan_tip: {
+    ko: '<strong>팬 제어</strong><br>냉각 단계에서 사용할 팬 속도를 0~100%로 지정합니다 (백엔드는 PWM 0~255로 변환).<br><br>· 100% = 풀가동 (빠른 냉각)<br>· 토글 OFF 시 명시적으로 M106 P&lt;n&gt; S0 전송 (이전 인쇄의 잔류 팬 상태 차단)<br><br>P1 = 파트 쿨링, P2 = AUX 보조, P3 = 챔버 배기',
+    en: '<strong>Fan Control</strong><br>Fan speeds during cooling, 0~100% (backend converts to PWM 0~255).<br><br>· 100% = full speed (faster cooling)<br>· When toggled OFF, explicit M106 P&lt;n&gt; S0 is sent (blocks residual fan state from previous print)<br><br>P1 = part cooling, P2 = AUX, P3 = chamber exhaust',
+  },
+};
+
+let _tipPopover = null;
+function bindInfoTips() {
+  document.querySelectorAll('.info-tip').forEach(el => {
+    if (el._tipBound) return;
+    el._tipBound = true;
+    el.addEventListener('mouseenter', (e) => {
+      const key = el.dataset.tip;
+      const txt = TIP_TEXTS[key];
+      if (!txt) return;
+      const html = txt[currentLang] || txt.en || txt.ko || '';
+      if (_tipPopover) _tipPopover.remove();
+      _tipPopover = document.createElement('div');
+      _tipPopover.className = 'info-tip-popover';
+      _tipPopover.innerHTML = html;
+      document.body.appendChild(_tipPopover);
+      const rect = el.getBoundingClientRect();
+      let left = rect.right + 8;
+      let top = rect.top;
+      // Keep within the viewport
+      const pw = _tipPopover.offsetWidth;
+      const ph = _tipPopover.offsetHeight;
+      if (left + pw > window.innerWidth - 10) left = rect.left - pw - 8;
+      if (top + ph > window.innerHeight - 10) top = window.innerHeight - ph - 10;
+      if (top < 10) top = 10;
+      _tipPopover.style.left = left + 'px';
+      _tipPopover.style.top = top + 'px';
+    });
+    el.addEventListener('mouseleave', () => {
+      if (_tipPopover) { _tipPopover.remove(); _tipPopover = null; }
+    });
+  });
+}
+
+function setLang(lang) {
+  currentLang = lang;
+  localStorage.setItem('bambuloop_lang', lang);
+  applyI18n();
+  // Reload dynamic content
+  if (typeof loadSoundPresets === 'function') loadSoundPresets();
+  if (typeof renderCmSavedList === 'function') renderCmSavedList();
+  if (typeof render === 'function') render();              // 잡 리스트 (라인 라벨 등)
+  if (typeof updateCompatBanner === 'function') updateCompatBanner();  // 호환성 배너
+  if (typeof renderSafety === 'function' && lastSafetyData) {
+    renderSafety(lastSafetyData, lastSafetyFile);          // 결과 카드 안전 박스
+  }
+  // Generate-button label
+  const gb = document.getElementById('generateBtn');
+  if (gb && !gb.disabled && !gb.textContent.includes('⟳')) {
+    gb.textContent = lang === 'en' ? '▶ GENERATE COMBINED G-CODE' : '▶ 통합 G-CODE 생성';
+  }
+  // cmName placeholder
+  const cmName = document.getElementById('cmName');
+  if (cmName) {
+    cmName.placeholder = lang === 'en' ? cmName.dataset.placeholderEn : cmName.dataset.placeholderKo;
+    // Update the name if it was auto-generated (user did not type one)
+    const v = cmName.value.trim();
+    if (v.startsWith('내 멜로디 ') || v.startsWith('My Melody ')) {
+      cmName.value = (typeof suggestNextName === 'function') ? suggestNextName() : v;
+    }
+  }
+  // Refresh note label + time unit
+  if (typeof renderCmNoteList === 'function') renderCmNoteList();
+  // Sweep controls
+  const sweepBtn = document.getElementById('sweepVizToggle');
+  if (sweepBtn) {
+    const isCollapsed = sweepBtn.textContent.includes('▸') || sweepBtn.textContent.includes('Expand');
+    sweepBtn.textContent = isCollapsed ? (lang === 'en' ? 'Expand ▸' : '펼치기 ▸') : (lang === 'en' ? 'Collapse ▾' : '접기 ▾');
+  }
+  // Sweep play/pause button
+  const playBtn = document.getElementById('sweepPlayBtn');
+  if (playBtn && typeof sweepViz !== 'undefined') {
+    playBtn.textContent = sweepViz.paused
+      ? (lang === 'en' ? '▶ Play' : '▶ 재생')
+      : (lang === 'en' ? '⏸ Pause' : '⏸ 일시정지');
+  }
+  // Sweep status (sweep X/N · Z step N/M)
+  if (typeof refreshSweepViz === 'function') refreshSweepViz();
+}
+
+// Toast i18n helper — accepts a {ko, en} dict or a plain string
+function tToast(msg, type) {
+  if (typeof msg === 'string') {
+    showToast(msg, type);
+  } else if (msg && typeof msg === 'object') {
+    showToast(msg[currentLang] || msg.en || msg.ko || '', type);
+  }
+}
+
+// Generic i18n value resolver — accepts a {ko, en, ...} dict (sent by the
+// backend via t_dict()) or a plain string (legacy). Picks the right entry
+// for the current UI language, falls back to English, then to the input
+// itself if nothing matches. New languages added via i18n/<lang>.json
+// require no frontend change beyond adding the language to the UI toggle.
+function tValue(v, fallback) {
+  if (v == null) return fallback || '';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'object') return v[currentLang] || v.en || fallback || '';
+  return fallback || '';
+}
+
+// ============================================================
+// Custom alert/confirm modal (replaces the native alert/confirm)
+// ============================================================
+function showAlertModal(title, htmlBody) {
+  const modal = document.getElementById('alertModal');
+  document.getElementById('alertModalTitle').textContent = title;
+  document.getElementById('alertModalBody').innerHTML = htmlBody;
+  document.getElementById('alertModalCancel').style.display = 'none';
+  const okBtn = document.getElementById('alertModalOk');
+  okBtn.textContent = currentLang === 'en' ? 'OK' : '확인';
+  modal.style.display = 'flex';
+  return new Promise(resolve => {
+    const close = () => { modal.style.display = 'none'; resolve(); };
+    okBtn.onclick = close;
+    document.getElementById('alertModalClose').onclick = close;
+  });
+}
+
+function showConfirmModal(title, htmlBody, opts) {
+  opts = opts || {};
+  const modal = document.getElementById('alertModal');
+  document.getElementById('alertModalTitle').textContent = title;
+  document.getElementById('alertModalBody').innerHTML = htmlBody;
+  const cancelBtn = document.getElementById('alertModalCancel');
+  const okBtn = document.getElementById('alertModalOk');
+  cancelBtn.style.display = 'inline-block';
+  cancelBtn.textContent = opts.cancelLabel || (currentLang === 'en' ? 'Cancel' : '취소');
+  okBtn.textContent = opts.okLabel || (currentLang === 'en' ? 'Proceed' : '진행');
+  modal.style.display = 'flex';
+  return new Promise(resolve => {
+    const close = (val) => {
+      modal.style.display = 'none';
+      cancelBtn.onclick = okBtn.onclick = null;
+      resolve(val);
+    };
+    okBtn.onclick = () => close(true);
+    cancelBtn.onclick = () => close(false);
+    document.getElementById('alertModalClose').onclick = () => close(false);
+  });
+}
+
+// Toggle button handler (once DOM is ready)
+document.addEventListener('DOMContentLoaded', () => {
+  const tb = document.getElementById('langToggle');
+  if (tb) tb.addEventListener('click', () => setLang(currentLang === 'ko' ? 'en' : 'ko'));
+  applyI18n();
+  bindInfoTips();
+});
+
+// Detect the file:// protocol — warn if opened directly without Flask
+if (location.protocol === 'file:') {
+  document.getElementById('protocol-warn').style.display = 'block';
+}
+
+// ============================================================
+// State management
+// ============================================================
+const state = {
+  jobs: [],   // [{stored_name, original_name, count, info}]
+};
+
+// ============================================================
+// Toast
+// ============================================================
+const toast = document.getElementById('toast');
+let toastTimer = null;
+function showToast(msg, type = '') {
+  toast.textContent = msg;
+  toast.className = 'toast show ' + type;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove('show'), 3500);
+}
+
+// ============================================================
+// Upload
+// ============================================================
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+
+['dragenter', 'dragover'].forEach(evt =>
+  dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.add('drag'); }));
+['dragleave', 'drop'].forEach(evt =>
+  dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.remove('drag'); }));
+
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  const files = Array.from(e.dataTransfer.files);
+  uploadFiles(files);
+});
+fileInput.addEventListener('change', e => uploadFiles(Array.from(e.target.files)));
+
+async function uploadFiles(files) {
+  if (files.length === 0) return;
+  const fd = new FormData();
+  files.forEach(f => fd.append('gcode_files', f));
+
+  tToast({ko: `${files.length}개 파일 업로드 중...`, en: `Uploading ${files.length} file(s)...`});
+  try {
+    const res = await fetch('/api/upload', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(tValue(data.error, '업로드 실패'));
+
+    let rejectedCount = 0;
+    let acceptedCount = 0;
+    (data.files || []).forEach(info => {
+      // Nozzle compatibility check (diameter / flow type / material must all match)
+      let rejectReason = null;
+      if (state.jobs.length > 0) {
+        const first = state.jobs[0].info;
+        const isEN = currentLang === 'en';
+        // Nozzle diameter
+        if (first.nozzle_diameter && info.nozzle_diameter &&
+            Math.abs(first.nozzle_diameter - info.nozzle_diameter) > 0.001) {
+          rejectReason = isEN
+            ? `Nozzle diameter mismatch: <strong style="color:#ff8e7a;">${info.nozzle_diameter}mm</strong> ≠ <strong style="color:#5fc8ff;">${first.nozzle_diameter}mm</strong>`
+            : `노즐 직경 불일치: <strong style="color:#ff8e7a;">${info.nozzle_diameter}mm</strong> ≠ <strong style="color:#5fc8ff;">${first.nozzle_diameter}mm</strong>`;
+        }
+        // Flow type (Standard / High Flow)
+        else if (first.nozzle_flow_type && info.nozzle_flow_type &&
+                 first.nozzle_flow_type !== info.nozzle_flow_type) {
+          rejectReason = isEN
+            ? `Nozzle flow type mismatch: <strong style="color:#ff8e7a;">${escapeHtml(info.nozzle_flow_type)}</strong> ≠ <strong style="color:#5fc8ff;">${escapeHtml(first.nozzle_flow_type)}</strong>`
+            : `노즐 유량 타입 불일치: <strong style="color:#ff8e7a;">${escapeHtml(info.nozzle_flow_type)}</strong> ≠ <strong style="color:#5fc8ff;">${escapeHtml(first.nozzle_flow_type)}</strong>`;
+        }
+        // Nozzle material (Stainless / Hardened / Tungsten)
+        else if (first.nozzle_hrc && info.nozzle_hrc &&
+                 first.nozzle_hrc !== info.nozzle_hrc) {
+          rejectReason = isEN
+            ? `Nozzle material mismatch: <strong style="color:#ff8e7a;">${escapeHtml(info.nozzle_hrc)}</strong> ≠ <strong style="color:#5fc8ff;">${escapeHtml(first.nozzle_hrc)}</strong>`
+            : `노즐 소재 불일치: <strong style="color:#ff8e7a;">${escapeHtml(info.nozzle_hrc)}</strong> ≠ <strong style="color:#5fc8ff;">${escapeHtml(first.nozzle_hrc)}</strong>`;
+        }
+      }
+
+      if (rejectReason) {
+        rejectedCount++;
+        const isEN = currentLang === 'en';
+        const first = state.jobs[0].info;
+        showAlertModal(
+          isEN ? '🚫 Upload Rejected' : '🚫 업로드 거부됨',
+          (isEN
+            ? `Project <strong>'${escapeHtml(info.original_name)}'</strong> rejected — nozzle hardware does not match the first project.<br><br>${rejectReason}<br><br>
+               First project nozzle: ${first.nozzle_diameter || '?'}mm · ${escapeHtml(first.nozzle_flow_type || 'Standard')} · ${escapeHtml(first.nozzle_hrc || 'Stainless Steel')}<br>
+               Rejected project nozzle: ${info.nozzle_diameter || '?'}mm · ${escapeHtml(info.nozzle_flow_type || 'Standard')} · ${escapeHtml(info.nozzle_hrc || 'Stainless Steel')}<br><br>
+               Different nozzle hardware cannot be combined — the printer would extrude wrong amounts and may damage the part or printer.<br>
+               Please re-slice with matching nozzle settings, or remove the first project to start fresh.`
+            : `프로젝트 <strong>'${escapeHtml(info.original_name)}'</strong> 거부됨 — 노즐 하드웨어가 첫 프로젝트와 일치하지 않습니다.<br><br>${rejectReason}<br><br>
+               첫 프로젝트 노즐: ${first.nozzle_diameter || '?'}mm · ${escapeHtml(first.nozzle_flow_type || 'Standard')} · ${escapeHtml(first.nozzle_hrc || 'Stainless Steel')}<br>
+               거부된 프로젝트 노즐: ${info.nozzle_diameter || '?'}mm · ${escapeHtml(info.nozzle_flow_type || 'Standard')} · ${escapeHtml(info.nozzle_hrc || 'Stainless Steel')}<br><br>
+               서로 다른 노즐 하드웨어는 결합할 수 없습니다 (압출량 오류로 부품/프린터 손상 가능).<br>
+               동일한 노즐 설정으로 다시 슬라이스하거나, 첫 프로젝트 제거 후 새로 시작하세요.`)
+        );
+        // Server-side cleanup
+        fetch('/api/delete_upload', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({stored_name: info.stored_name}),
+        }).catch(() => {});
+        return;
+      }
+      acceptedCount++;
+      state.jobs.push({
+        stored_name: info.stored_name,
+        original_name: info.original_name,
+        count: 1,
+        info: info,
+      });
+    });
+
+    if (data.errors && data.errors.length) {
+      data.errors.forEach(e => showToast(`✗ ${e.filename}: ${tValue(e.message)}`, 'error'));
+    } else if (acceptedCount > 0) {
+      tToast({ko: `✓ ${acceptedCount}개 파일 추가됨`, en: `✓ ${acceptedCount} file(s) added`}, 'success');
+    }
+    // No separate toast when files are rejected — the modal already covers it
+    render();
+  } catch (e) {
+    showToast('✗ ' + e.message, 'error');
+  }
+  fileInput.value = '';
+}
+
+// ============================================================
+// Rendering
+// ============================================================
+const jobListEl = document.getElementById('jobList');
+const emptyEl = document.getElementById('emptyState');
+const sumJobs = document.getElementById('sumJobs');
+const sumPrints = document.getElementById('sumPrints');
+const sumSize = document.getElementById('sumSize');
+const generateBtn = document.getElementById('generateBtn');
+
+function render() {
+  jobListEl.innerHTML = '';
+  if (state.jobs.length === 0) {
+    emptyEl.style.display = 'block';
+  } else {
+    emptyEl.style.display = 'none';
+    state.jobs.forEach((job, idx) => {
+      const el = document.createElement('div');
+      el.className = 'job-item';
+      el.innerHTML = `
+        <div class="job-info">
+          <div class="job-name">${escapeHtml(job.original_name)}</div>
+          <div class="job-meta">
+            <span class="tag orange">${job.info.filament_type}</span>
+            ${job.info.nozzle_diameter > 0 ? `<span class="tag cyan" title="Nozzle diameter">⌀ ${job.info.nozzle_diameter}mm</span>` : ''}
+            ${job.info.nozzle_flow_type ? `<span class="tag purple" title="Flow type">${escapeHtml(job.info.nozzle_flow_type === 'High Flow' ? 'HF' : job.info.nozzle_flow_type)}</span>` : ''}
+            ${job.info.nozzle_hrc ? `<span class="tag purple" title="Nozzle material">${escapeHtml(job.info.nozzle_hrc.replace(' Steel', '').replace(' Carbide', ''))}</span>` : ''}
+            <span class="tag cyan">N ${job.info.nozzle_temp}°C</span>
+            <span class="tag cyan">B ${job.info.bed_temp}°C</span>
+            ${job.info.chamber_temp > 0 ? `<span class="tag yellow">C ${job.info.chamber_temp}°C</span>` : ''}
+            ${job.info.max_z_height > 0 ? `<span class="tag yellow">↕ ${job.info.max_z_height.toFixed(1)}mm</span>` : ''}
+            <span class="sep">·</span>
+            <span>${job.info.body_lines.toLocaleString()} ${currentLang === 'en' ? 'lines' : '라인'}</span>
+            <span class="sep">·</span>
+            <span>${job.info.size_kb} KB</span>
+          </div>
+        </div>
+        <div class="count-input">
+          <button data-act="dec" data-idx="${idx}">−</button>
+          <input type="number" min="1" max="999" value="${job.count}" data-idx="${idx}" />
+          <button data-act="inc" data-idx="${idx}">+</button>
+        </div>
+        <button class="btn-icon" data-act="del" data-idx="${idx}" title="${currentLang === 'en' ? 'Delete' : '삭제'}">×</button>
+      `;
+      jobListEl.appendChild(el);
+    });
+  }
+
+  // Count / delete handlers
+  jobListEl.querySelectorAll('button[data-act], input[data-idx]').forEach(el => {
+    if (el.tagName === 'INPUT') {
+      el.addEventListener('change', e => {
+        const idx = +e.target.dataset.idx;
+        const v = Math.max(1, Math.min(999, parseInt(e.target.value) || 1));
+        state.jobs[idx].count = v;
+        e.target.value = v;
+        render();
+      });
+    } else {
+      el.addEventListener('click', e => {
+        const idx = +e.currentTarget.dataset.idx;
+        const act = e.currentTarget.dataset.act;
+        if (act === 'inc') state.jobs[idx].count = Math.min(999, state.jobs[idx].count + 1);
+        else if (act === 'dec') state.jobs[idx].count = Math.max(1, state.jobs[idx].count - 1);
+        else if (act === 'del') state.jobs.splice(idx, 1);
+        render();
+      });
+    }
+  });
+
+  // Summary
+  const totalCopies = state.jobs.reduce((s, j) => s + j.count, 0);
+  const totalSize = state.jobs.reduce((s, j) => s + j.info.size_kb * j.count, 0);
+  sumJobs.textContent = state.jobs.length;
+  sumPrints.textContent = totalCopies;
+  sumSize.textContent = totalSize >= 1024 ? (totalSize / 1024).toFixed(1) + ' MB' : totalSize.toFixed(0) + ' KB';
+  generateBtn.disabled = state.jobs.length === 0;
+
+  // Compatibility check + banner refresh (runs on every job change)
+  updateCompatBanner();
+}
+
+// ============================================================
+// Multi-project compatibility check (persistent banner)
+// ============================================================
+function checkCompatibility() {
+  // Compare every job to the first → return the list of mismatched jobs + reasons
+  if (state.jobs.length < 2) return [];
+  const first = state.jobs[0].info;
+  const issues = [];
+  for (let i = 1; i < state.jobs.length; i++) {
+    const j = state.jobs[i].info;
+    const diffs = [];
+    if (first.nozzle_diameter && j.nozzle_diameter &&
+        Math.abs(first.nozzle_diameter - j.nozzle_diameter) > 0.001) {
+      diffs.push({k: 'nozzle_diameter', a: j.nozzle_diameter + 'mm', b: first.nozzle_diameter + 'mm'});
+    }
+    if (first.nozzle_temp && j.nozzle_temp &&
+        Math.abs(first.nozzle_temp - j.nozzle_temp) > 10) {
+      diffs.push({k: 'nozzle_temp', a: j.nozzle_temp + '°C', b: first.nozzle_temp + '°C'});
+    }
+    if (first.bed_temp && j.bed_temp &&
+        Math.abs(first.bed_temp - j.bed_temp) > 5) {
+      diffs.push({k: 'bed_temp', a: j.bed_temp + '°C', b: first.bed_temp + '°C'});
+    }
+    if (first.filament_type && j.filament_type &&
+        first.filament_type !== j.filament_type) {
+      diffs.push({k: 'filament', a: j.filament_type, b: first.filament_type});
+    }
+    if (diffs.length > 0) {
+      issues.push({job: state.jobs[i], diffs: diffs});
+    }
+  }
+  return issues;
+}
+
+function updateCompatBanner() {
+  const banner = document.getElementById('compatBanner');
+  if (!banner) return;
+  const issues = checkCompatibility();
+  const isEN = currentLang === 'en';
+
+  if (issues.length === 0) {
+    banner.style.display = 'none';
+    return;
+  }
+
+  const first = state.jobs[0];
+  const fInfo = first.info;
+
+  // Title
+  document.getElementById('compatBannerTitle').textContent = isEN
+    ? `⚠ MULTI-PROJECT COMPATIBILITY CONFLICT (${issues.length} project${issues.length > 1 ? 's' : ''})`
+    : `⚠ 멀티 프로젝트 호환성 충돌 (${issues.length}개 프로젝트)`;
+
+  // Body
+  const firstDesc = isEN
+    ? `<div style="margin-bottom:8px;">First uploaded project <strong style="color:#ffaa55;">'${escapeHtml(first.original_name)}'</strong> determines the settings used for ALL prints:</div>
+       <div style="font-family:monospace; font-size:11px; padding:6px 10px; background:rgba(0,0,0,0.3); margin-bottom:10px;">
+         ⌀ ${fInfo.nozzle_diameter || '?'}mm · Nozzle ${fInfo.nozzle_temp}°C · Bed ${fInfo.bed_temp}°C · ${escapeHtml(fInfo.filament_type)}
+       </div>`
+    : `<div style="margin-bottom:8px;">첫 번째로 업로드된 프로젝트 <strong style="color:#ffaa55;">'${escapeHtml(first.original_name)}'</strong>의 설정이 모든 인쇄에 적용됩니다:</div>
+       <div style="font-family:monospace; font-size:11px; padding:6px 10px; background:rgba(0,0,0,0.3); margin-bottom:10px;">
+         ⌀ ${fInfo.nozzle_diameter || '?'}mm · 노즐 ${fInfo.nozzle_temp}°C · 베드 ${fInfo.bed_temp}°C · ${escapeHtml(fInfo.filament_type)}
+       </div>`;
+
+  const conflictsHeader = isEN
+    ? '<div style="margin-bottom:6px;">Following projects do NOT match:</div>'
+    : '<div style="margin-bottom:6px;">아래 프로젝트가 일치하지 않습니다:</div>';
+
+  const labels_en = {nozzle_diameter:'Nozzle ⌀', nozzle_temp:'Nozzle', bed_temp:'Bed', filament:'Filament'};
+  const labels_ko = {nozzle_diameter:'노즐 ⌀', nozzle_temp:'노즐', bed_temp:'베드', filament:'필라멘트'};
+  const labels = isEN ? labels_en : labels_ko;
+
+  const conflicts = issues.map(iss => {
+    const diffStr = iss.diffs.map(d => `${labels[d.k]} <strong style="color:#ff8e7a;">${escapeHtml(d.a)}</strong> ≠ <strong>${escapeHtml(d.b)}</strong>`).join(', ');
+    return `<div style="padding:6px 10px; margin-bottom:4px; background:rgba(231,76,60,0.15); border-left:3px solid #e74c3c; font-size:11px;">
+              <span style="color:#ffaa55; font-weight:600;">${escapeHtml(iss.job.original_name)}</span><br>
+              <span style="font-family:monospace;">${diffStr}</span>
+            </div>`;
+  }).join('');
+
+  document.getElementById('compatBannerBody').innerHTML = firstDesc + conflictsHeader + conflicts;
+
+  // Help (how to fix)
+  document.getElementById('compatBannerHelp').innerHTML = isEN
+    ? `<strong>How to fix:</strong> Re-slice all projects with the same printer / nozzle diameter / AMS / filament settings, then re-upload.<br>
+       Or remove the incompatible projects above using the × button.<br>
+       <strong style="color:#ff8e7a;">Generate button is blocked until conflicts are resolved.</strong>`
+    : `<strong>해결 방법:</strong> 모든 프로젝트를 동일한 프린터 / 노즐 직경 / AMS / 필라멘트 설정으로 다시 슬라이스 후 업로드하세요.<br>
+       또는 위의 호환되지 않는 프로젝트를 × 버튼으로 제거하세요.<br>
+       <strong style="color:#ff8e7a;">충돌 해소 전까지 생성 버튼이 비활성화됩니다.</strong>`;
+
+  banner.style.display = 'block';
+
+  // Force-disable the generate button
+  generateBtn.disabled = true;
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ============================================================
+// Settings-section toggles
+// ============================================================
+document.querySelectorAll('.settings-header').forEach(h => {
+  h.addEventListener('click', () => h.parentElement.classList.toggle('collapsed'));
+});
+
+// ============================================================
+// Generate
+// ============================================================
+function collectSettings() {
+  const ids = [
+    'cooling_bed_temp','cooling_retries','cooling_chamber_temp','part_fan_speed','aux_fan_speed',
+    'chamber_fan_speed','cooling_park_z_min','park_z_clearance',
+    'eject_method','eject_z_offset','eject_z_start_offset','eject_descent_steps',
+    'eject_speed','eject_passes','back_overhang_mm','front_overhang_mm',
+    'bed_size_x','bed_size_y','purge_length_mm','post_print_override_min',
+  ];
+  const s = {};
+  ids.forEach(id => { s[id] = document.getElementById(id).value; });
+  // Fan values: UI is % (0-100), backend is PWM (0-255). Convert.
+  ['part_fan_speed','aux_fan_speed','chamber_fan_speed'].forEach(id => {
+    const pct = parseInt(s[id]) || 0;
+    s[id] = Math.max(0, Math.min(255, Math.round(pct * 255 / 100)));
+  });
+  ['part_fan_enabled','aux_fan_enabled','chamber_fan_enabled',
+   'pause_after_eject','nozzle_clean_between',
+   'rehome_xy_between','rehome_z_between','purge_between'].forEach(id => {
+    s[id] = document.getElementById(id).checked;
+  });
+  // Sound presets (6 events)
+  ['sound_print_start','sound_print_done','sound_cool_done',
+   'sound_sweep_done','sound_restart','sound_print_end'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) s[id] = el.value;
+  });
+  // Custom melodies — send everything from localStorage
+  s.custom_melodies = getCustomMelodies();
+  // Locale — G-code comment language
+  s.lang = currentLang;
+  return s;
+}
+
+// ============================================================
+// Dry-run modal + generate handler
+// ============================================================
+const drModal = document.getElementById('dryRunModal');
+
+function openDryRunModal() {
+  // Refresh the modal info panel (based on the uploaded file)
+  const sampleStored = state.jobs.length > 0 ? state.jobs[0].stored_name : null;
+  const simHeight = state.jobs.length > 0 ? (state.jobs[0].info.max_z_height || 40) : 40;
+  const simNozzle = state.jobs.length > 0 ? (state.jobs[0].info.nozzle_temp || 220) : 220;
+  const simBed = state.jobs.length > 0 ? (state.jobs[0].info.bed_temp || 55) : 55;
+
+  document.getElementById('drInfoH').textContent = simHeight;
+  document.getElementById('drInfoN').textContent = simNozzle;
+  document.getElementById('drInfoB').textContent = simBed;
+  document.getElementById('drInfoSample').textContent = sampleStored
+    ? `시작 G-code: 업로드된 ${state.jobs[0].original_name} 사용 (실 H2S 캘리브레이션 포함)`
+    : `시작 G-code: 기본값 (업로드 파일 없음 — ⚠ 실 캘리브레이션 누락)`;
+  document.getElementById('drInfoSample').style.color = sampleStored
+    ? 'var(--green)' : 'var(--yellow)';
+
+  drModal.style.display = 'flex';
+}
+
+function closeDryRunModal() {
+  drModal.style.display = 'none';
+}
+
+document.getElementById('dryRunBtn').addEventListener('click', openDryRunModal);
+document.getElementById('drCancel').addEventListener('click', closeDryRunModal);
+document.getElementById('drCancel2').addEventListener('click', closeDryRunModal);
+drModal.addEventListener('click', (e) => {
+  if (e.target === drModal) closeDryRunModal();
+});
+
+document.getElementById('drGenerate').addEventListener('click', async () => {
+  const sampleStored = state.jobs.length > 0 ? state.jobs[0].stored_name : null;
+  const simHeight = state.jobs.length > 0 ? (state.jobs[0].info.max_z_height || 40) : 40;
+  const simNozzle = state.jobs.length > 0 ? (state.jobs[0].info.nozzle_temp || 220) : 220;
+  const simBed = state.jobs.length > 0 ? (state.jobs[0].info.bed_temp || 55) : 55;
+
+  const phases = {
+    include_cooling:  document.getElementById('dr_include_cooling').checked,
+    wait_for_cooling: document.getElementById('dr_wait_cooling').checked,
+    include_eject:    document.getElementById('dr_include_eject').checked,
+    include_reheat:   document.getElementById('dr_include_reheat').checked,
+    wait_for_reheat:  document.getElementById('dr_wait_reheat').checked,
+    include_reset:    document.getElementById('dr_include_reset').checked,
+    minimal_start:    document.getElementById('dr_minimal_start').checked,
+    skip_ams_load:    document.getElementById('dr_skip_ams_load').checked,
+    cycles:           parseInt(document.getElementById('dr_cycles').value || '1', 10),
+  };
+
+  const btn = document.getElementById('drGenerate');
+  const oldText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⟳ 생성 중...';
+  document.getElementById('result').classList.remove('show');
+
+  try {
+    const res = await fetch('/api/dry_run', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        settings: collectSettings(),
+        sample_stored_name: sampleStored,
+        simulated_print_height: simHeight,
+        simulated_nozzle_temp: simNozzle,
+        simulated_bed_temp: simBed,
+        phases: phases,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(tValue(data.error, 'Dry-run 생성 실패'));
+
+    const enabled = Object.entries(phases).filter(([k,v]) => v).map(([k]) => k);
+    document.getElementById('rFile').textContent = data.filename;
+    document.getElementById('rSize').textContent = data.size_kb + ' KB';
+    document.getElementById('rLines').textContent = data.lines.toLocaleString();
+    document.getElementById('rCopies').textContent = `DRY-RUN (${enabled.length}/6 phase)`;
+    const dl = document.getElementById('downloadLink');
+    dl.href = '/api/download/' + data.filename;
+    dl.setAttribute('download', data.filename);
+    document.getElementById('result').classList.add('show');
+    renderSafety(data.safety, data.filename);
+    closeDryRunModal();
+    tToast({ko: '✓ Dry-run G-code 생성 완료', en: '✓ Dry-run G-code generated'}, 'success');
+  } catch (e) {
+    showToast('✗ ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = oldText;
+  }
+});
+
+// Fan toggle ↔ speed input linkage (input disabled when OFF)
+[['part_fan_enabled','part_fan_speed','fan-row-p1'],
+ ['aux_fan_enabled','aux_fan_speed','fan-row-p2'],
+ ['chamber_fan_enabled','chamber_fan_speed','fan-row-p3']].forEach(([tog, spd, row]) => {
+  const togEl = document.getElementById(tog);
+  const spdEl = document.getElementById(spd);
+  const rowEl = document.getElementById(row);
+  const sync = () => {
+    spdEl.disabled = !togEl.checked;
+    rowEl.classList.toggle('disabled', !togEl.checked);
+  };
+  togEl.addEventListener('change', sync);
+  sync();
+});
+
+generateBtn.addEventListener('click', async () => {
+  if (state.jobs.length === 0) return;
+
+  // ★ Detect multi-source jobs — warn about AMS metadata limits if jobs come from different .3mf files
+  const uniqueSources = new Set(
+    state.jobs.map(j => j.info.from_3mf).filter(Boolean)
+  );
+  if (uniqueSources.size >= 2) {
+    const isEN = currentLang === 'en';
+    const title = isEN ? '⚠ Multi-source .3mf detected' : '⚠ 멀티 소스 .3mf 감지';
+    const body = isEN
+      ? `<div style="margin-bottom:10px;">Jobs from ${uniqueSources.size} different .3mf files are mixed.</div>
+         <div style="margin-bottom:10px;">AMS metadata (filament slot mapping) is taken only from the first job's .3mf.
+         Each job's G-code preserves T0/T1/M620 commands, but slots not declared in the .3mf metadata may not be recognized by the printer.</div>
+         <div style="margin-top:12px; padding:8px 10px; background:rgba(255,170,85,0.1); border-left:3px solid #ffaa55; font-size:11px;">
+           <strong>Recommended:</strong><br>
+           • Single-filament bambuloop: no issue<br>
+           • Multi-filament needed: combine into one Bambu Studio project + duplicate plates
+         </div>`
+      : `<div style="margin-bottom:10px;">서로 다른 .3mf 파일 ${uniqueSources.size}개에서 온 작업들이 섞여 있습니다.</div>
+         <div style="margin-bottom:10px;">AMS 메타데이터(필라멘트 슬롯 매핑)는 첫 번째 작업의 .3mf에서만 가져옵니다.
+         각 작업의 G-code 안에는 원본 T0/T1/M620 명령이 보존되지만, .3mf 메타에 선언되지 않은 슬롯을 프린터가 인식하지 못할 수 있습니다.</div>
+         <div style="margin-top:12px; padding:8px 10px; background:rgba(255,170,85,0.1); border-left:3px solid #ffaa55; font-size:11px;">
+           <strong>권장:</strong><br>
+           • 단일 필라멘트 bambuloop: 문제 없음<br>
+           • 멀티 필라멘트 필요: Bambu Studio에서 하나의 프로젝트로 통합 슬라이싱 후 플레이트 복제 사용
+         </div>`;
+    const ok = await showConfirmModal(title, body, {
+      okLabel: isEN ? 'Proceed' : '계속 진행',
+    });
+    if (!ok) return;
+  }
+
+  generateBtn.disabled = true;
+  generateBtn.textContent = currentLang === 'en' ? '⟳ Generating...' : '⟳ 생성 중...';
+  document.getElementById('result').classList.remove('show');
+
+  try {
+    const doFetch = async (forceCompat) => {
+      return await fetch('/api/generate', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          jobs: state.jobs.map(j => ({
+            stored_name: j.stored_name,
+            original_name: j.original_name,
+            count: j.count,
+            source_3mf_stored: j.info.source_3mf_stored || null,
+            source_plate_name: j.info.source_plate_name || null,
+          })),
+          settings: collectSettings(),
+          want_3mf: true,
+          force_compatibility: !!forceCompat,
+        }),
+      });
+    };
+
+    let res = await doFetch(false);
+    let data = await res.json();
+
+    // Multi-job compatibility conflict (409)
+    if (res.status === 409 && data.error === 'incompatible_jobs') {
+      const isEN = currentLang === 'en';
+      const title = isEN
+        ? '⚠️ Multi-project compatibility conflict'
+        : '⚠️ 멀티 프로젝트 호환성 충돌';
+      const explainHeader = isEN
+        ? `<div style="margin-bottom:10px;">The first uploaded project determines:</div>
+           <ul style="margin:0 0 12px 18px; padding:0; line-height:1.8;">
+             <li>Printer start_gcode (homing/leveling/AMS load)</li>
+             <li>Nozzle/bed/chamber temperatures from header</li>
+             <li>AMS filament slot assignment</li>
+           </ul>
+           <div style="margin-bottom:10px;">These will be applied to ALL subsequent projects. Detected mismatches:</div>`
+        : `<div style="margin-bottom:10px;">첫 번째로 업로드된 프로젝트가 다음을 결정합니다:</div>
+           <ul style="margin:0 0 12px 18px; padding:0; line-height:1.8;">
+             <li>프린터 start_gcode (호밍/레벨링/AMS 로드)</li>
+             <li>헤더에서 추출한 노즐/베드/챔버 온도</li>
+             <li>AMS 필라멘트 슬롯 할당</li>
+           </ul>
+           <div style="margin-bottom:10px;">이 설정이 이후 모든 프로젝트에 적용됩니다. 감지된 불일치:</div>`;
+      const warningsList = (data.warnings || [])
+        .map(w => `<li style="margin-bottom:4px; color:#ff8e7a; font-family:monospace; font-size:11px;">${tValue(w)}</li>`)
+        .join('');
+      const firstInfo = isEN
+        ? `<div style="margin-top:12px; padding:8px 10px; background:rgba(255,170,85,0.1); border-left:3px solid #ffaa55; font-size:11px;">
+             First project: <strong>${data.first_job.filename}</strong><br>
+             Nozzle ${data.first_job.nozzle}°C / Bed ${data.first_job.bed}°C / ${data.first_job.filament_type}
+           </div>`
+        : `<div style="margin-top:12px; padding:8px 10px; background:rgba(255,170,85,0.1); border-left:3px solid #ffaa55; font-size:11px;">
+             첫 프로젝트: <strong>${data.first_job.filename}</strong><br>
+             노즐 ${data.first_job.nozzle}°C / 베드 ${data.first_job.bed}°C / ${data.first_job.filament_type}
+           </div>`;
+      const decision = isEN
+        ? `<div style="margin-top:12px; font-size:11px; color:var(--text-dim); line-height:1.6;">
+             <strong>Recommended:</strong> Cancel and re-slice with identical settings.<br>
+             <strong>Proceed:</strong> Use first project's settings for all (NOT recommended).
+           </div>`
+        : `<div style="margin-top:12px; font-size:11px; color:var(--text-dim); line-height:1.6;">
+             <strong>권장:</strong> 취소 후 동일 설정으로 다시 슬라이스하세요.<br>
+             <strong>진행:</strong> 첫 프로젝트 설정을 모두에 적용 (권장하지 않음).
+           </div>`;
+
+      const body = explainHeader +
+                   `<ul style="margin:0 0 0 18px; padding:0;">${warningsList}</ul>` +
+                   firstInfo + decision;
+
+      const confirmed = await showConfirmModal(title, body, {
+        cancelLabel: isEN ? 'Cancel' : '취소',
+        okLabel: isEN ? 'Proceed anyway' : '강제 진행',
+      });
+      if (!confirmed) {
+        tToast({ko: '✗ 생성 취소 (호환되지 않는 프로젝트)', en: '✗ Generation cancelled (incompatible projects)'}, 'error');
+        return;
+      }
+      // Force-proceed
+      res = await doFetch(true);
+      data = await res.json();
+    }
+
+    // Z-collision block (409) — not bypassable, user must change settings
+    if (res.status === 409 && (data.error === 'z_collision_bottom_mode' || data.error === 'z_collision_step_drop')) {
+      const title = tValue(data.title);
+      const message = tValue(data.message);
+      // Convert \n in the message to <br> for rendering
+      const htmlMessage = message
+        .split('\n')
+        .map(line => {
+          const escaped = line
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          if (line.trim() === '') return '<div style="height:6px;"></div>';
+          if (line.startsWith('•')) return `<div style="margin:2px 0 2px 8px; line-height:1.5;">${escaped}</div>`;
+          if (line.endsWith(':')) return `<div style="margin-top:8px; font-weight:600;">${escaped}</div>`;
+          return `<div style="line-height:1.5;">${escaped}</div>`;
+        })
+        .join('');
+      const body = `
+        <div style="padding:14px; border:2px solid #ff5544; border-radius:6px; background:rgba(255,85,68,0.06); font-size:12px;">
+          ${htmlMessage}
+        </div>
+      `;
+      await showAlertModal(title, body);
+      tToast({ko: '✗ 생성 차단됨 — 설정을 변경한 후 다시 시도하세요', en: '✗ Generation blocked — change settings and retry'}, 'error');
+      return;
+    }
+
+    if (!res.ok) throw new Error(tValue(data.error, '생성 실패'));
+
+    // If a .3mf is present, prefer it as the primary download; otherwise the .gcode
+    const has3mf = !!data.filename_3mf;
+    const primaryFile = has3mf ? data.filename_3mf : data.filename;
+    const primarySize = has3mf ? data.size_kb_3mf : data.size_kb;
+
+    document.getElementById('rFile').textContent = primaryFile;
+    document.getElementById('rSize').textContent = primarySize + ' KB' +
+      (has3mf ? ` · .gcode ${data.size_kb}KB ${currentLang === 'en' ? 'bundled' : '동봉'}` : '');
+    document.getElementById('rLines').textContent = data.lines.toLocaleString();
+    document.getElementById('rCopies').textContent = (currentLang === 'en'
+      ? `${data.total_copies} prints` + (has3mf ? ` · AMS-aware ✓ (plate: ${data.plate_target})` : ' · .gcode only (AMS manual)')
+      : `${data.total_copies}회` + (has3mf ? ` · AMS 인식 ✓ (plate: ${data.plate_target})` : ' · .gcode만 (AMS 수동)'));
+    const dl = document.getElementById('downloadLink');
+    dl.href = '/api/download/' + primaryFile;
+    dl.setAttribute('download', primaryFile);
+    dl.textContent = has3mf ? (currentLang === 'en' ? '↓ Download .gcode.3mf (AMS-aware)' : '↓ .gcode.3mf 다운로드 (AMS 인식)') : (currentLang === 'en' ? '↓ Download .gcode' : '↓ .gcode 다운로드');
+    document.getElementById('result').classList.add('show');
+    renderSafety(data.safety, primaryFile);   // ★ 안전 검증 표시
+    tToast(has3mf
+        ? {ko: `✓ .gcode.3mf 생성 완료 (AMS 필라멘트 지정 유지, MD5 ${data.md5_new.slice(0,8)}...)`,
+           en: `✓ .gcode.3mf generated (AMS filament assignment preserved, MD5 ${data.md5_new.slice(0,8)}...)`}
+        : {ko: '✓ G-code 생성 완료', en: '✓ G-code generated'}, 'success');
+  } catch (e) {
+    showToast('✗ ' + e.message, 'error');
+  } finally {
+    generateBtn.disabled = false;
+    generateBtn.textContent = currentLang === 'en' ? '▶ GENERATE COMBINED G-CODE' : '▶ 통합 G-CODE 생성';
+  }
+});
+
+// ============================================================
+// Init
+// ============================================================
+document.getElementById('resetBtn').addEventListener('click', async () => {
+  const isEN = currentLang === 'en';
+  const ok = await showConfirmModal(
+    isEN ? 'Reset' : '초기화',
+    isEN
+      ? 'All uploaded files and generated results will be deleted. Continue?'
+      : '업로드된 모든 파일과 생성된 결과를 삭제합니다. 계속할까요?',
+    {okLabel: isEN ? 'Reset' : '초기화'}
+  );
+  if (!ok) return;
+  await fetch('/api/reset', { method: 'POST' });
+  state.jobs = [];
+  document.getElementById('result').classList.remove('show');
+  render();
+  tToast({ko: '초기화 완료', en: 'Reset complete'});
+});
+
+// ============================================================
+// Load sound presets + persist to localStorage
+// ============================================================
+const SOUND_EVENTS = ['sound_print_start', 'sound_print_done', 'sound_cool_done',
+                       'sound_sweep_done', 'sound_restart', 'sound_print_end'];
+const SOUND_DEFAULTS = {
+  sound_print_start: '',                  // "" = Bambu 기본값 유지
+  sound_print_done: 'do_re_mi',
+  sound_cool_done: 'cavalry_short',
+  sound_sweep_done: 'victory',
+  sound_restart: 'bambu_default_start',
+  sound_print_end: '',                    // "" = Bambu 기본값 유지
+};
+// Start / end events allow the "keep factory" option (value = "")
+const SOUND_ALLOW_DEFAULT = new Set(['sound_print_start', 'sound_print_end']);
+
+async function loadSoundPresets() {
+  try {
+    const res = await fetch('/api/sound_presets');
+    const data = await res.json();
+    const presets = data.presets || [];
+    PRESET_PATTERNS_KEYS = new Set(presets.map(p => p.key));
+    // Note cache for preview
+    PRESET_NOTES_CACHE = {};
+    presets.forEach(p => { PRESET_NOTES_CACHE[p.key] = p.notes; });
+
+    const customMelodies = getCustomMelodies();
+    const customEntries = Object.entries(customMelodies).map(([name, notes]) => ({
+      key: name,
+      desc: currentLang === 'en'
+        ? `(custom) ${notes.length} notes / ${(notes.reduce((s,[_,d])=>s+d,0)/100).toFixed(1)}s`
+        : `(커스텀) ${notes.length}음 / ${(notes.reduce((s,[_,d])=>s+d,0)/100).toFixed(1)}초`,
+      isCustom: true,
+    }));
+
+    SOUND_EVENTS.forEach(evKey => {
+      const sel = document.getElementById(evKey);
+      if (!sel) return;
+      const prevValue = sel.value;
+      sel.innerHTML = '';
+
+      // Start/end events: add the "keep Bambu factory default" option (value = "")
+      if (SOUND_ALLOW_DEFAULT.has(evKey)) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = currentLang === 'en' ? '🔇 (Keep Bambu Default)' : '🔇 (Bambu 기본값 유지)';
+        sel.appendChild(opt);
+      }
+
+      // Built-in presets
+      presets.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.key;
+        // desc may be a {ko, en} dict or a plain string
+        const descText = (typeof p.desc === 'object' && p.desc !== null)
+                          ? (p.desc[currentLang] || p.desc.ko || '')
+                          : (p.desc || '');
+        opt.textContent = `${p.key} — ${descText}`;
+        sel.appendChild(opt);
+      });
+
+      // Custom melodies (★ marker)
+      if (customEntries.length > 0) {
+        const sep = document.createElement('option');
+        sep.disabled = true;
+        sep.textContent = currentLang === 'en' ? '── My Custom Melodies ──' : '── 내 커스텀 멜로디 ──';
+        sel.appendChild(sep);
+        customEntries.forEach(c => {
+          const opt = document.createElement('option');
+          opt.value = c.key;
+          opt.textContent = `★ ${c.key} — ${c.desc}`;
+          sel.appendChild(opt);
+        });
+      }
+
+      // Restore prior value, fall back to localStorage, then default
+      // ★ prevValue may be an empty string (sel.value == '' on first load).
+      //    In that case the user did NOT intentionally clear it, so fall through to the default.
+      // ★ localStorage keys use the 'bambuloop_' namespace (migrated from the previous farmloop_)
+      const saved = localStorage.getItem('bambuloop_' + evKey);
+      let target;
+      if (prevValue) {
+        target = prevValue;   // 사용자가 이미 선택한 값 (유효한 문자열)
+      } else if (saved !== null) {
+        target = saved;       // localStorage에 저장된 값 (빈 문자열 허용)
+      } else {
+        target = SOUND_DEFAULTS[evKey];  // 하드코딩 기본값
+      }
+      if ([...sel.options].some(o => o.value === target && !o.disabled)) {
+        sel.value = target;
+      }
+
+      // Persist on change
+      sel.onchange = () => localStorage.setItem('bambuloop_' + evKey, sel.value);
+    });
+
+    // Show the catalog count
+    const countEl = document.getElementById('soundCatalogCount');
+    if (countEl) {
+      const totalSec = Math.round((presets.length + customEntries.length) * 2.5);
+      countEl.textContent = currentLang === 'en'
+        ? `(Built-in ${presets.length} + Custom ${customEntries.length})`
+        : `(기본 ${presets.length} + 커스텀 ${customEntries.length})`;
+    }
+  } catch (e) {
+    console.error('사운드 프리셋 로드 실패:', e);
+  }
+}
+
+// ============================================================
+// Catalog download — sends the mode + custom melodies
+// ============================================================
+document.getElementById('soundCatalogBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('soundCatalogBtn');
+  const mode = document.getElementById('catalogMode').value;
+  btn.disabled = true;
+  btn.textContent = '⟳ 생성 중...';
+  try {
+    const res = await fetch('/api/sound_catalog', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mode: mode,
+        custom_melodies: getCustomMelodies(),
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(tValue(data.error, '실패'));
+    triggerDownload('/api/download/' + data.filename, data.filename);
+    tToast({ko: `✓ 카탈로그 다운로드 (${data.item_count}개, ${data.size_kb}KB)`, en: `✓ Catalog downloaded (${data.item_count} items, ${data.size_kb}KB)`}, 'success');
+  } catch (e) {
+    showToast('✗ ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '↓ 카탈로그 G-code 다운로드';
+  }
+});
+
+function triggerDownload(url, filename) {
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+// ============================================================
+// Custom melody builder
+// ============================================================
+const CUSTOM_KEY = 'farmloop_custom_melodies';
+const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
+let cmCurrentNotes = [];  // [[midi, dur], ...]
+let cmEditingName = null;  // 기존 멜로디 편집 중이면 이름
+
+function getCustomMelodies() {
+  try { return JSON.parse(localStorage.getItem(CUSTOM_KEY) || '{}'); }
+  catch { return {}; }
+}
+function setCustomMelodies(obj) {
+  localStorage.setItem(CUSTOM_KEY, JSON.stringify(obj));
+}
+
+// Build the piano keyboard in place of a pitch dropdown
+const PIANO_WHITE_NOTES = [60,62,64,65,67,69,71, 72,74,76,77,79,81,83, 84,86];
+const PIANO_BLACK_NOTES = [
+  {midi: 61, after: 0},  // C#4
+  {midi: 63, after: 1},  // D#4
+  {midi: 66, after: 3},  // F#4
+  {midi: 68, after: 4},  // G#4
+  {midi: 70, after: 5},  // A#4
+  {midi: 73, after: 7},  // C#5
+  {midi: 75, after: 8},  // D#5
+  {midi: 78, after: 10}, // F#5
+  {midi: 80, after: 11}, // G#5
+  {midi: 82, after: 12}, // A#5
+  {midi: 85, after: 14}, // C#6
+];
+const NOTE_NAMES_FLAT = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+function midiToName(midi) {
+  return NOTE_NAMES_FLAT[midi % 12] + (Math.floor(midi/12) - 1);
+}
+
+function buildPianoUI() {
+  const container = document.getElementById('pianoContainer');
+  if (!container || container.dataset.built === 'yes') return;
+  container.dataset.built = 'yes';
+
+  const W = 30; // 흰건반 너비 (CSS와 동일)
+  const BW = 20; // 검은건반 너비
+
+  // White-keys row
+  const whiteRow = document.createElement('div');
+  whiteRow.className = 'piano-white-row';
+  PIANO_WHITE_NOTES.forEach(midi => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'piano-key piano-white' + (midi % 12 === 0 ? ' octave-c' : '');
+    btn.dataset.midi = midi;
+    btn.title = midiToName(midi) + ` (MIDI ${midi})`;
+    const label = document.createElement('span');
+    label.className = 'key-label';
+    label.textContent = midiToName(midi);
+    btn.appendChild(label);
+    btn.addEventListener('click', () => onPianoKey(midi, btn));
+    whiteRow.appendChild(btn);
+  });
+  container.appendChild(whiteRow);
+
+  // Black keys (absolute-positioned)
+  PIANO_BLACK_NOTES.forEach(({midi, after}) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'piano-key piano-black';
+    btn.dataset.midi = midi;
+    btn.title = midiToName(midi) + ` (MIDI ${midi})`;
+    btn.style.left = ((after + 1) * (W + 1) - BW/2) + 'px';
+    const label = document.createElement('span');
+    label.className = 'key-label';
+    label.textContent = midiToName(midi);
+    btn.appendChild(label);
+    btn.addEventListener('click', () => onPianoKey(midi, btn));
+    container.appendChild(btn);
+  });
+}
+
+function onPianoKey(midi, btnEl) {
+  const dur = parseInt(document.getElementById('cmDuration').value);
+  cmCurrentNotes.push([midi, dur]);
+  // Instant in-browser preview (single tone)
+  playSingleNote(midi, dur);
+  renderCmNoteList();
+  // Visual feedback
+  btnEl.classList.add('flash');
+  setTimeout(() => btnEl.classList.remove('flash'), Math.max(120, dur * 10));
+}
+
+function playSingleNote(midi, durTicks) {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const sec = durTicks / 100;
+  const freq = 440 * Math.pow(2, (midi - 69) / 12);
+  const t = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = 'sine';
+  osc.frequency.value = freq;
+  gain.gain.setValueAtTime(0, t);
+  gain.gain.linearRampToValueAtTime(0.25, t + 0.01);
+  gain.gain.linearRampToValueAtTime(0.25, t + sec - 0.02);
+  gain.gain.linearRampToValueAtTime(0, t + sec);
+  osc.connect(gain).connect(audioCtx.destination);
+  osc.start(t);
+  osc.stop(t + sec);
+}
+
+// Duration slider display
+const cmDur = document.getElementById('cmDuration');
+cmDur.addEventListener('input', () => {
+  document.getElementById('cmDurDisplay').textContent = (cmDur.value / 100).toFixed(2) + '초';
+  document.getElementById('cmDurTicks').textContent = cmDur.value;
+});
+
+// Add a rest
+document.getElementById('cmAddRest').addEventListener('click', () => {
+  cmCurrentNotes.push([0, parseInt(cmDur.value)]);
+  renderCmNoteList();
+});
+
+function renderCmNoteList() {
+  const listEl = document.getElementById('cmNoteList');
+  const emptyEl = document.getElementById('cmEmptyHint');
+  listEl.innerHTML = '';
+  if (cmCurrentNotes.length === 0) {
+    emptyEl.style.display = 'block';
+  } else {
+    emptyEl.style.display = 'none';
+    cmCurrentNotes.forEach(([midi, dur], idx) => {
+      const tag = document.createElement('div');
+      tag.style.cssText = 'background:var(--bg-2); border:1px solid var(--line-2); padding:5px 8px; font-size:11px; display:flex; gap:6px; align-items:center;';
+      const label = midi === 0 ? '— rest' : (NOTE_NAMES[midi % 12] + (Math.floor(midi/12) - 1));
+      tag.innerHTML = `
+        <span style="color:${midi === 0 ? 'var(--text-faint)' : 'var(--text)'}; min-width:42px;">${label}</span>
+        <span style="color:var(--text-dim);">${(dur/100).toFixed(2)}s</span>
+        <button data-act="up" data-i="${idx}" style="background:none; border:1px solid var(--line); color:var(--text); cursor:pointer; padding:1px 5px;">↑</button>
+        <button data-act="dn" data-i="${idx}" style="background:none; border:1px solid var(--line); color:var(--text); cursor:pointer; padding:1px 5px;">↓</button>
+        <button data-act="rm" data-i="${idx}" style="background:none; border:1px solid var(--line); color:var(--accent); cursor:pointer; padding:1px 5px;">×</button>
+      `;
+      listEl.appendChild(tag);
+    });
+    listEl.querySelectorAll('button').forEach(b => {
+      b.addEventListener('click', () => {
+        const i = parseInt(b.dataset.i);
+        if (b.dataset.act === 'up' && i > 0) {
+          [cmCurrentNotes[i-1], cmCurrentNotes[i]] = [cmCurrentNotes[i], cmCurrentNotes[i-1]];
+        } else if (b.dataset.act === 'dn' && i < cmCurrentNotes.length - 1) {
+          [cmCurrentNotes[i], cmCurrentNotes[i+1]] = [cmCurrentNotes[i+1], cmCurrentNotes[i]];
+        } else if (b.dataset.act === 'rm') {
+          cmCurrentNotes.splice(i, 1);
+        }
+        renderCmNoteList();
+      });
+    });
+  }
+  document.getElementById('cmNoteCount').textContent = cmCurrentNotes.length;
+  const totalTicks = cmCurrentNotes.reduce((s, [_, d]) => s + d, 0);
+  const secStr = (totalTicks / 100).toFixed(1);
+  document.getElementById('cmTotalDur').textContent = currentLang === 'en' ? `${secStr}s` : `${secStr}초`;
+  // Refresh the label prefix ("N notes")
+  const countEl = document.getElementById('cmNoteCount');
+  if (countEl && countEl.parentElement) {
+    const span = countEl.parentElement.querySelector('.cm-notes-suffix');
+    if (span) span.textContent = currentLang === 'en' ? ' notes, ' : '음, ';
+  }
+}
+
+// Browser preview (Web Audio API)
+let audioCtx = null;
+document.getElementById('cmPreviewBrowser').addEventListener('click', () => {
+  if (cmCurrentNotes.length === 0) { tToast({ko: '음을 먼저 추가하세요', en: 'Add a note first'}, 'error'); return; }
+  playMelodyInBrowser(cmCurrentNotes);
+  const totalSec = cmCurrentNotes.reduce((s, [_, d]) => s + d, 0) / 100;
+  tToast({ko: `🔊 브라우저 재생 (${totalSec.toFixed(1)}초)`, en: `🔊 Browser playback (${totalSec.toFixed(1)}s)`}, 'success');
+});
+
+// Printer preview (G-code download)
+document.getElementById('cmPreviewPrinter').addEventListener('click', async () => {
+  if (cmCurrentNotes.length === 0) { tToast({ko: '음을 먼저 추가하세요', en: 'Add a note first'}, 'error'); return; }
+  try {
+    const res = await fetch('/api/sound_catalog', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ single_notes: cmCurrentNotes }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(tValue(data.error));
+    triggerDownload('/api/download/' + data.filename, data.filename);
+    tToast({ko: '✓ 프린터 미리듣기 G-code 다운로드', en: '✓ Printer preview G-code downloaded'}, 'success');
+  } catch (e) { showToast('✗ ' + e.message, 'error'); }
+});
+
+// Save (auto-clears after save → endless-add workflow)
+document.getElementById('cmSave').addEventListener('click', async () => {
+  const name = document.getElementById('cmName').value.trim();
+  if (!name) { tToast({ko: '이름을 입력하세요', en: 'Enter a name'}, 'error'); return; }
+  if (cmCurrentNotes.length === 0) { tToast({ko: '음을 추가하세요', en: 'Add at least one note'}, 'error'); return; }
+  if (PRESET_PATTERNS_KEYS.has(name)) {
+    tToast({ko: '내장 프리셋과 같은 이름은 사용 불가', en: 'Cannot use the same name as a built-in preset'}, 'error'); return;
+  }
+  const all = getCustomMelodies();
+  if (all[name] && cmEditingName !== name) {
+    const isEN = currentLang === 'en';
+    const ok = await showConfirmModal(
+      isEN ? 'Overwrite?' : '덮어쓰기?',
+      isEN ? `Overwrite existing melody '<strong>${name}</strong>'?` : `<strong>'${name}'</strong> 멜로디를 덮어쓸까요?`,
+      {okLabel: isEN ? 'Overwrite' : '덮어쓰기'}
+    );
+    if (!ok) return;
+  }
+  if (cmEditingName && cmEditingName !== name) delete all[cmEditingName];
+  all[name] = cmCurrentNotes.slice();
+  setCustomMelodies(all);
+  tToast({ko: `✓ '${name}' 저장됨 (총 ${Object.keys(all).length}개)`, en: `✓ '${name}' saved (total ${Object.keys(all).length})`}, 'success');
+
+  // ★ Auto-clear — ready for the next melody
+  cmCurrentNotes = [];
+  cmEditingName = null;
+  document.getElementById('cmName').value = suggestNextName();
+  renderCmNoteList();
+  renderCmSavedList();
+  loadSoundPresets();
+});
+
+function suggestNextName() {
+  // Pick the localized "My Melody N" label based on currentLang
+  const all = getCustomMelodies();
+  const prefix = currentLang === 'en' ? 'My Melody ' : '내 멜로디 ';
+  let n = 1;
+  while (all[prefix + n]) n++;
+  return prefix + n;
+}
+
+// New-melody button
+document.getElementById('cmClear').addEventListener('click', async () => {
+  if (cmCurrentNotes.length > 0) {
+    const isEN = currentLang === 'en';
+    const ok = await showConfirmModal(
+      isEN ? 'Clear current work?' : '현재 작업 비우기?',
+      isEN ? 'Clear the current melody being edited? (Unsaved changes will be lost.)'
+           : '현재 작업 중인 멜로디를 비울까요? (저장하지 않은 변경사항은 사라집니다)',
+      {okLabel: isEN ? 'Clear' : '비우기'}
+    );
+    if (!ok) return;
+  }
+  cmCurrentNotes = [];
+  cmEditingName = null;
+  document.getElementById('cmName').value = suggestNextName();
+  renderCmNoteList();
+});
+
+function renderCmSavedList() {
+  const all = getCustomMelodies();
+  const listEl = document.getElementById('cmSavedList');
+  const emptyEl = document.getElementById('cmSavedEmpty');
+  const countEl = document.getElementById('cmSavedCount');
+  listEl.innerHTML = '';
+  const names = Object.keys(all);
+  if (countEl) countEl.textContent = names.length;
+  if (names.length === 0) {
+    emptyEl.style.display = 'block';
+  } else {
+    emptyEl.style.display = 'none';
+    names.forEach(name => {
+      const notes = all[name];
+      const totalSec = (notes.reduce((s, [_, d]) => s + d, 0) / 100).toFixed(1);
+      const notesLabel = currentLang === 'en'
+        ? `${notes.length} notes / ${totalSec}s`
+        : `${notes.length}음 / ${totalSec}초`;
+      const editLabel = currentLang === 'en' ? 'Edit' : '편집';
+      const delLabel = currentLang === 'en' ? 'Delete' : '삭제';
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex; gap:6px; align-items:center; padding:6px 8px; background:var(--bg-2); border:1px solid var(--line);';
+      row.innerHTML = `
+        <span style="flex:1; font-size:12px; color:var(--text);">★ ${name}</span>
+        <span style="font-size:11px; color:var(--text-dim);">${notesLabel}</span>
+        <button data-act="preview" style="background:none; border:1px solid var(--line); color:var(--text); padding:3px 8px; font-size:11px; cursor:pointer;">▶</button>
+        <button data-act="edit" style="background:none; border:1px solid var(--line); color:var(--text); padding:3px 8px; font-size:11px; cursor:pointer;">${editLabel}</button>
+        <button data-act="del" style="background:none; border:1px solid var(--line); color:var(--accent); padding:3px 8px; font-size:11px; cursor:pointer;">${delLabel}</button>
+      `;
+      row.querySelector('[data-act=preview]').addEventListener('click', () => {
+        playMelodyInBrowser(notes);
+      });
+      row.querySelector('[data-act=edit]').addEventListener('click', () => {
+        cmCurrentNotes = notes.slice();
+        cmEditingName = name;
+        document.getElementById('cmName').value = name;
+        renderCmNoteList();
+      });
+      row.querySelector('[data-act=del]').addEventListener('click', async () => {
+        const isEN = currentLang === 'en';
+        const ok = await showConfirmModal(
+          isEN ? 'Delete melody?' : '멜로디 삭제?',
+          isEN ? `Delete melody '<strong>${name}</strong>'?` : `<strong>'${name}'</strong> 멜로디를 삭제할까요?`,
+          {okLabel: isEN ? 'Delete' : '삭제'}
+        );
+        if (!ok) return;
+        const cur = getCustomMelodies();
+        delete cur[name];
+        setCustomMelodies(cur);
+        if (cmEditingName === name) {
+          cmEditingName = null;
+          document.getElementById('cmName').value = '';
+        }
+        renderCmSavedList();
+        loadSoundPresets();
+      });
+      listEl.appendChild(row);
+    });
+  }
+}
+
+// Web Audio playback helper (also used for previewing saved melodies)
+function playMelodyInBrowser(notes) {
+  if (!notes || notes.length === 0) return;
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  let t = audioCtx.currentTime;
+  notes.forEach(([midi, dur]) => {
+    const sec = dur / 100;
+    if (midi !== 0) {
+      const freq = 440 * Math.pow(2, (midi - 69) / 12);
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(0.25, t + 0.01);
+      gain.gain.linearRampToValueAtTime(0.25, t + sec - 0.02);
+      gain.gain.linearRampToValueAtTime(0, t + sec);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(t);
+      osc.stop(t + sec);
+    }
+    t += sec;
+  });
+}
+
+// Modal open/close
+const cmModal = document.getElementById('customMelodyModal');
+document.getElementById('customMelodyBtn').addEventListener('click', () => {
+  cmModal.style.display = 'flex';
+  buildPianoUI();  // 첫 열 때만 피아노 빌드
+  // Start from empty state (does not carry over previous work)
+  if (cmCurrentNotes.length === 0 && !document.getElementById('cmName').value) {
+    document.getElementById('cmName').value = suggestNextName();
+  }
+  renderCmNoteList();
+  renderCmSavedList();
+});
+document.getElementById('cmCancel').addEventListener('click', () => {
+  cmModal.style.display = 'none';
+});
+
+// ============================================================
+// Safety validation UI
+// ============================================================
+let PRESET_PATTERNS_KEYS = new Set();
+let PRESET_NOTES_CACHE = {};   // {presetKey: [[midi, dur], ...]}
+let lastSafetyData = null;
+let lastSafetyFile = null;
+
+function renderSafety(safety, filename) {
+  const box = document.getElementById('safetyBox');
+  if (!box || !safety || safety.error) {
+    if (box) box.style.display = 'none';
+    if (safety && safety.error) tToast({ko: '안전 검증 실패: ' + safety.error, en: 'Safety validation failed: ' + safety.error}, 'error');
+    return;
+  }
+  lastSafetyData = safety;
+  lastSafetyFile = filename;
+  box.style.display = 'block';
+
+  // verdict badge + box colour
+  const verdictEl = document.getElementById('safetyVerdict');
+  verdictEl.textContent = tValue(safety.verdict_label);
+  const colorMap = {
+    'safe':      { border: '#2ecc71', bg: 'rgba(46,204,113,0.06)' },
+    'soft_only': { border: '#f5a623', bg: 'rgba(245,166,35,0.06)' },
+    'unsafe':    { border: '#e74c3c', bg: 'rgba(231,76,60,0.08)' },
+  };
+  const c = colorMap[safety.verdict] || colorMap['safe'];
+  box.style.borderColor = c.border;
+  box.style.background = c.bg;
+
+  // Stats
+  document.getElementById('sMoves').textContent =
+    `${safety.total_moves.toLocaleString()} (G0/G1 ${safety.moves_g0g1.toLocaleString()}, G2/G3 ${safety.moves_arc.toLocaleString()})`;
+  if (safety.bbox_min && safety.bbox_max) {
+    const fmt = a => a.map(v => v.toFixed(1)).join(', ');
+    document.getElementById('sBbox').textContent =
+      `[${fmt(safety.bbox_min)}] ~ [${fmt(safety.bbox_max)}]`;
+  } else {
+    document.getElementById('sBbox').textContent = '(이동 없음)';
+  }
+  const p = safety.printable, ph = safety.physical;
+  document.getElementById('sPrintable').textContent =
+    `X[${p.x_min},${p.x_max}] Y[${p.y_min},${p.y_max}] Z[${p.z_min},${p.z_max}]`;
+  document.getElementById('sPhysical').textContent =
+    (currentLang === 'en' ? `X[${ph.x_min},${ph.x_max}] Y[${ph.y_min},${ph.y_max}] Z[${ph.z_min},${ph.z_max}] (margin ${safety.margin_mm}mm)` : `X[${ph.x_min},${ph.x_max}] Y[${ph.y_min},${ph.y_max}] Z[${ph.z_min},${ph.z_max}] (마진 ${safety.margin_mm}mm)`);
+
+  document.getElementById('sSoftCount').textContent = safety.soft_count;
+  document.getElementById('sHardCount').textContent = safety.hard_count;
+  document.getElementById('sSoftDetailBtn').disabled = safety.soft_count === 0;
+  document.getElementById('sHardDetailBtn').disabled = safety.hard_count === 0;
+  document.getElementById('sHeader').textContent = tValue(safety.header_note);
+
+  document.getElementById('safetyMargin').value = safety.margin_mm;
+}
+
+// Re-validate (margin changed)
+document.getElementById('safetyRecheck').addEventListener('click', async () => {
+  if (!lastSafetyFile) { tToast({ko: '먼저 G-code를 생성하세요', en: 'Generate G-code first'}, 'error'); return; }
+  const margin = parseFloat(document.getElementById('safetyMargin').value) || 20;
+  const btn = document.getElementById('safetyRecheck');
+  btn.disabled = true;
+  btn.textContent = '⟳ ...';
+  try {
+    const res = await fetch('/api/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: lastSafetyFile, margin_mm: margin }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(tValue(data.error));
+    renderSafety(data, lastSafetyFile);
+    tToast({ko: `✓ 마진 ${margin}mm 재검증 완료`, en: `✓ Re-validated with ${margin}mm margin`}, 'success');
+  } catch (e) {
+    showToast('✗ ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '↻ 재검증';
+  }
+});
+
+// Violation detail modal
+function showViolationsModal(kind) {
+  if (!lastSafetyData) return;
+  const list = kind === 'hard' ? lastSafetyData.hard_violations : lastSafetyData.soft_violations;
+  const title = kind === 'hard' ? '🔴 충돌 위험 (하드 위반)' : '🟡 영역 밖 이동 (소프트 위반)';
+  const desc = kind === 'hard'
+    ? '물리적 한계를 벗어난 이동입니다. G-code를 검토하세요.'
+    : '인쇄 영역 밖이지만 물리 한계 안. Bambu 정상 wipe/purge일 가능성이 높습니다.';
+
+  const rows = list.map(v => `
+    <tr>
+      <td style="padding:6px; border-bottom:1px solid var(--line); color:var(--text-dim); font-family:monospace; font-size:11px;">L${v.line_no}</td>
+      <td style="padding:6px; border-bottom:1px solid var(--line); color:${kind === 'hard' ? '#e74c3c' : '#f5a623'}; font-family:monospace; font-size:11px; word-break:break-all;">${v.axes.join(', ')}</td>
+      <td style="padding:6px; border-bottom:1px solid var(--line); color:var(--text); font-family:monospace; font-size:11px; word-break:break-all;">${escapeHtml(v.command)}</td>
+      <td style="padding:6px; border-bottom:1px solid var(--line); color:var(--text-faint); font-size:10px;">${v.note || ''}</td>
+    </tr>
+  `).join('');
+
+  // Build the modal dynamically
+  let modal = document.getElementById('violationsModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'violationsModal';
+    modal.className = 'modal-backdrop';
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = `
+    <div class="modal-card" style="max-width:900px;">
+      <div class="modal-header">
+        <span style="font-weight:700;">${title}</span>
+        <button class="modal-close" onclick="document.getElementById('violationsModal').style.display='none';">×</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:12px; color:var(--text-dim); margin-bottom:12px;">${desc}</p>
+        <p style="font-size:12px; color:var(--text-dim); margin-bottom:12px;">총 <strong>${list.length}</strong>건 (최대 200건까지 표시)</p>
+        <div style="max-height:400px; overflow-y:auto; border:1px solid var(--line);">
+          <table style="width:100%; border-collapse:collapse;">
+            <thead>
+              <tr style="background:var(--bg-2);">
+                <th style="padding:8px; text-align:left; font-size:11px; color:var(--text-dim);">줄</th>
+                <th style="padding:8px; text-align:left; font-size:11px; color:var(--text-dim);">위반 축</th>
+                <th style="padding:8px; text-align:left; font-size:11px; color:var(--text-dim);">G-code 명령</th>
+                <th style="padding:8px; text-align:left; font-size:11px; color:var(--text-dim);">비고</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+  modal.style.display = 'flex';
+}
+
+document.getElementById('sSoftDetailBtn').addEventListener('click', () => showViolationsModal('soft'));
+document.getElementById('sHardDetailBtn').addEventListener('click', () => showViolationsModal('hard'));
+
+// Hide the safety box in the result card by default
+(function hideSafetyInitially() {
+  const box = document.getElementById('safetyBox');
+  if (box) box.style.display = 'none';
+})();
+
+// Sound preview buttons (▶ next to each event select)
+document.querySelectorAll('.sound-preview-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const targetId = btn.dataset.target;
+    const sel = document.getElementById(targetId);
+    if (!sel || !sel.value) {
+      tToast({ko: '선택된 멜로디 없음 (정품 사운드 또는 미선택)', en: 'No melody selected (default sound or unset)'}, 'error');
+      return;
+    }
+    const key = sel.value;
+    // Priority: custom melodies → built-in presets
+    const customs = getCustomMelodies();
+    let notes = customs[key] || PRESET_NOTES_CACHE[key];
+    if (!notes || notes.length === 0) {
+      tToast({ko: `'${key}' 멜로디를 찾을 수 없음`, en: `Melody '${key}' not found`}, 'error');
+      return;
+    }
+    playMelodyInBrowser(notes);
+    tToast({ko: `🔊 '${key}' 재생`, en: `🔊 Playing '${key}'`}, 'success');
+  });
+});
+
+loadSoundPresets();
+
+// ============================================================
+// Sweep visualization (live preview + head animation)
+// ============================================================
+const sweepViz = {
+  svg: null, zbar: null,
+  svgW: 360, svgH: 320,
+  bedLeft: 30, bedTop: 30, bedW: 300, bedH: 260,
+  paused: true,            // ★ 기본 일시정지 (사용자가 ▶ 누르기 전엔 정지)
+  speed: 1.0,
+  currentZStep: 0,
+  totalCycleSec: 5.0,
+  virtualSec: 0,           // ★ 누적 가상 시간 (speed 적용된 진행 시간)
+  lastTimestamp: 0,        // 마지막 RAF timestamp (실시간)
+  rafId: null,
+  params: null,
+};
+
+function getSweepParams() {
+  const $ = id => parseFloat(document.getElementById(id).value);
+  const method = document.getElementById('eject_method').value;
+  return {
+    method,
+    bedX: $('bed_size_x') || 340,
+    bedY: $('bed_size_y') || 320,
+    backOver: $('back_overhang_mm') || 15,
+    frontOver: $('front_overhang_mm') || 5,
+    passes: Math.max(1, Math.min(30, parseInt(document.getElementById('eject_passes').value) || 4)),
+    steps: Math.max(1, Math.min(8, parseInt(document.getElementById('eject_descent_steps').value) || 4)),
+    zStart: parseFloat(document.getElementById('eject_z_start_offset').value) || 8,
+    zEnd: parseFloat(document.getElementById('eject_z_offset').value) || 0.4,
+  };
+}
+
+// X-pass coordinates (mm) — same logic as gcode_processor.generate_eject_sequence
+function computeXPositions(p) {
+  const edge = 3;
+  if (p.passes === 1) return [Math.round(p.bedX / 2)];
+  // First build an evenly spaced X-coordinate list (left → right)
+  const xLinear = Array.from({length: p.passes}, (_, i) =>
+    Math.round(edge + (p.bedX - 2*edge) * i / (p.passes - 1))
+  );
+  // edge_to_center mode: reorder so edges alternate inward to the centre
+  //   [3, 59, 115, 171, 227, 283, 337]
+  //   → [3, 337, 59, 283, 115, 227, 171]
+  if (p.method === 'edge_to_center' || p.method === 'edge_to_center_bottom') {
+    const result = [];
+    let left = 0, right = xLinear.length - 1;
+    while (left <= right) {
+      result.push(xLinear[left]);
+      if (left !== right) result.push(xLinear[right]);
+      left++;
+      right--;
+    }
+    return result;
+  }
+  return xLinear;
+}
+
+// Convert bed mm → SVG px
+function bedToSvg(p, bedX, bedY) {
+  const yBackMm = p.bedY + p.backOver;       // 가장 뒤
+  const yFrontMm = -p.frontOver;             // 가장 앞
+  const totalYRangeMm = yBackMm - yFrontMm;
+  return {
+    x: sweepViz.bedLeft + (bedX / p.bedX) * sweepViz.bedW,
+    // SVG y=0 is the top (bed back). Map yBackMm to sweepViz.bedTop.
+    y: sweepViz.bedTop + ((yBackMm - bedY) / totalYRangeMm) * sweepViz.bedH,
+  };
+}
+
+function renderSweepStaticBackground(p) {
+  const svg = document.getElementById('sweepTopSvg');
+  if (!svg) return;
+  sweepViz.svg = svg;
+
+  const yBackMm = p.bedY + p.backOver;
+  const yFrontMm = -p.frontOver;
+  // Printable region (0,0) ~ (bedX, bedY)
+  const tl = bedToSvg(p, 0, p.bedY);
+  const br = bedToSvg(p, p.bedX, 0);
+
+  // Bed area
+  const bedRect = `<rect x="${tl.x}" y="${tl.y}" width="${br.x - tl.x}" height="${br.y - tl.y}"
+    fill="#1a1f2a" stroke="#3a4555" stroke-width="1"/>`;
+
+  // Bed area label (top-left)
+  const bedLabel = `<text x="${tl.x + 4}" y="${tl.y + 14}" fill="#5a6478" font-size="10" font-family="monospace">BED ${p.bedX}×${p.bedY}</text>`;
+
+  // Back / front overhang regions (drawn lightly)
+  const backTop = sweepViz.bedTop;
+  const backBot = bedToSvg(p, 0, p.bedY).y;
+  const frontTop = bedToSvg(p, 0, 0).y;
+  const frontBot = sweepViz.bedTop + sweepViz.bedH;
+  const backArea = `<rect x="${tl.x}" y="${backTop}" width="${br.x - tl.x}" height="${backBot - backTop}"
+    fill="rgba(255,140,40,0.05)" stroke="#3a4555" stroke-dasharray="3,2"/>`;
+  const frontArea = `<rect x="${tl.x}" y="${frontTop}" width="${br.x - tl.x}" height="${frontBot - frontTop}"
+    fill="rgba(255,140,40,0.05)" stroke="#3a4555" stroke-dasharray="3,2"/>`;
+  const isEN = currentLang === 'en';
+  const backLabelText = isEN ? `Back +${p.backOver}mm (Y=${yBackMm})` : `베드 후방 +${p.backOver}mm (Y=${yBackMm})`;
+  const frontLabelText = isEN ? `Front -${p.frontOver}mm (Y=${yFrontMm}) → part falls off` : `베드 전방 -${p.frontOver}mm (Y=${yFrontMm}) → 인쇄물 낙하`;
+  const backLabel = `<text x="${tl.x + 4}" y="${backTop + 12}" fill="#888" font-size="9">${backLabelText}</text>`;
+  const frontLabel = `<text x="${tl.x + 4}" y="${frontBot - 4}" fill="#888" font-size="9">${frontLabelText}</text>`;
+
+  // X-pass guide lines (dotted, top to bottom)
+  const xPositions = computeXPositions(p);
+  const yTop = sweepViz.bedTop;
+  const yBottom = sweepViz.bedTop + sweepViz.bedH;
+  const passLines = xPositions.map((x, i) => {
+    const sx = bedToSvg(p, x, 0).x;
+    const color = (i === 0 || i === xPositions.length - 1) ? "#ff7a2f" : "#4a5568";
+    return `<line x1="${sx}" y1="${yTop}" x2="${sx}" y2="${yBottom}"
+      stroke="${color}" stroke-width="${i === 0 ? 1.5 : 1}" stroke-dasharray="2,3" opacity="0.5"/>
+      <text x="${sx}" y="${yBottom + 11}" fill="${color}" font-size="8" text-anchor="middle">X${x}</text>`;
+  }).join("");
+
+  // Y-axis label
+  const yAxisText = isEN ? 'Y (front ← → back)' : 'Y (앞 ← → 뒤)';
+  const yLabel = `<text x="2" y="${(yTop + yBottom) / 2}" fill="#5a6478" font-size="9" transform="rotate(-90 2 ${(yTop+yBottom)/2})">${yAxisText}</text>`;
+
+  // Head-marker placeholder (animation updates its position)
+  const headMarker = `<circle id="sweepHead" cx="${tl.x}" cy="${yTop}" r="6"
+    fill="#ff7a2f" stroke="#fff" stroke-width="1.5" opacity="0.95"/>`;
+
+  // Path trail (shows the head's motion history)
+  const trailPath = `<path id="sweepTrail" d="" stroke="#ff7a2f" stroke-width="1.2" fill="none" opacity="0.5" stroke-linecap="round"/>`;
+
+  // Virtual print box (bed centre) — lets the user inspect the sweep path
+  const objSizeMm = 60;  // 가상 60×60mm 인쇄물
+  const objCx = p.bedX / 2;
+  const objCy = p.bedY / 2;
+  const objTL = bedToSvg(p, objCx - objSizeMm/2, objCy + objSizeMm/2);
+  const objBR = bedToSvg(p, objCx + objSizeMm/2, objCy - objSizeMm/2);
+  const objBox = `<rect x="${objTL.x}" y="${objTL.y}" width="${objBR.x - objTL.x}" height="${objBR.y - objTL.y}"
+    fill="rgba(100,180,255,0.15)" stroke="#5fa8d3" stroke-width="1" stroke-dasharray="4,2"/>
+    <text x="${(objTL.x + objBR.x)/2}" y="${(objTL.y + objBR.y)/2 + 3}" fill="#5fa8d3" font-size="9" text-anchor="middle" font-family="monospace">${isEN ? 'sample print' : '예시 인쇄물'}</text>`;
+
+  svg.innerHTML = bedRect + backArea + frontArea + bedLabel + backLabel + frontLabel + objBox + passLines + yLabel + trailPath + headMarker;
+}
+
+function renderZBar(p, currentStep) {
+  const zbar = document.getElementById('sweepZBar');
+  if (!zbar) return;
+  const w = 32, h = 180;
+  const stepH = (h - 8) / p.steps;
+  let parts = `<rect x="2" y="2" width="${w-4}" height="${h-4}" fill="none" stroke="#3a4555"/>`;
+  for (let i = 0; i < p.steps; i++) {
+    const y = 4 + i * stepH;
+    const isActive = i === currentStep;
+    // Z-fixed modes (bottom_only / edge_to_center_bottom): every step uses z_end
+    const isZFixed = (p.method === 'bottom_only' || p.method === 'edge_to_center_bottom');
+    const zMm = isZFixed
+      ? p.zEnd
+      : (p.zStart - (p.zStart - p.zEnd) * i / Math.max(1, p.steps - 1));
+    parts += `<rect x="4" y="${y}" width="${w-8}" height="${stepH - 2}"
+      fill="${isActive ? '#ff7a2f' : '#2a3441'}" stroke="${isActive ? '#fff' : '#3a4555'}"/>`;
+    parts += `<text x="${w/2}" y="${y + stepH/2 + 3}" fill="${isActive ? '#fff' : '#888'}" font-size="8"
+      text-anchor="middle" font-family="monospace">${zMm.toFixed(1)}</text>`;
+  }
+  zbar.innerHTML = parts;
+  document.getElementById('sweepZLabel').textContent = `${currentStep + 1}/${p.steps}`;
+}
+
+function buildSweepPath(p) {
+  // Return the head path within one layer (= one Z step) as an SVG coordinate sequence
+  // [{x, y, label}, ...]
+  const xPositions = computeXPositions(p);
+  const yBackMm = p.bedY + p.backOver;
+  const yFrontMm = -p.frontOver;
+  const path = [];
+  // Start: first X + Y back
+  path.push({...bedToSvg(p, xPositions[0], yBackMm), label: currentLang === 'en' ? 'Enter' : '진입'});
+  for (let i = 0; i < xPositions.length; i++) {
+    const x = xPositions[i];
+    if (i > 0) {
+      // Move X (keep Y back)
+      path.push({...bedToSvg(p, x, yBackMm), label: `X→${x}`});
+    }
+    // Sweep: back → front
+    path.push({...bedToSvg(p, x, yFrontMm), label: currentLang === 'en' ? `Sweep ${i+1}/${xPositions.length}` : `스윕 ${i+1}/${xPositions.length}`});
+    // Return to back unless this was the final pass
+    if (i < xPositions.length - 1) {
+      path.push({...bedToSvg(p, x, yBackMm), label: currentLang === 'en' ? 'Y return' : 'Y 복귀'});
+    }
+  }
+  return path;
+}
+
+function buildZigzagPath(p) {
+  // Zigzag: combine the back → front Y move with the X move (diagonal)
+  const xPositions = computeXPositions(p);
+  const yBackMm = p.bedY + p.backOver;
+  const yFrontMm = -p.frontOver;
+  const path = [];
+  path.push({...bedToSvg(p, xPositions[0], yBackMm), label: currentLang === 'en' ? 'Enter' : '진입'});
+  for (let i = 0; i < xPositions.length - 1; i++) {
+    const xA = xPositions[i], xB = xPositions[i+1];
+    // Diagonal ↘ or ↙ (back → front)
+    path.push({...bedToSvg(p, xB, yFrontMm), label: currentLang === 'en' ? `Diagonal ${i+1}` : `대각 ${i+1}`});
+    if (i < xPositions.length - 2) {
+      // Return Y to back (keep X)
+      path.push({...bedToSvg(p, xB, yBackMm), label: currentLang === 'en' ? 'Return' : '복귀'});
+    }
+  }
+  return path;
+}
+
+function buildSinglePath(p) {
+  // Single sweep: bed centre, one pass only
+  const cx = Math.round(p.bedX / 2);
+  const yBackMm = p.bedY + p.backOver;
+  const yFrontMm = -p.frontOver;
+  return [
+    {...bedToSvg(p, cx, yBackMm), label: currentLang === 'en' ? 'Enter' : '진입'},
+    {...bedToSvg(p, cx, yFrontMm), label: currentLang === 'en' ? 'Sweep' : '스윕'},
+  ];
+}
+
+function renderSweepFrame(t) {
+  // t: 0~1 (progress within one layer)
+  const p = sweepViz.params;
+  if (!p || !sweepViz.svg) return;
+
+  let path;
+  if (p.method === 'zigzag') path = buildZigzagPath(p);
+  else if (p.method === 'sweep') path = buildSinglePath(p);
+  else if (p.method === 'none') {
+    document.getElementById('sweepHead').setAttribute('opacity', '0');
+    document.getElementById('sweepStatus').textContent = currentLang === 'en' ? 'Eject disabled' : '분리 사용 안 함';
+    return;
+  }
+  else path = buildSweepPath(p);
+
+  if (path.length < 2) return;
+  // Map t along the total path length
+  const totalSegments = path.length - 1;
+  const tIdx = t * totalSegments;
+  const segIdx = Math.min(Math.floor(tIdx), totalSegments - 1);
+  const segT = tIdx - segIdx;
+  const a = path[segIdx], b = path[segIdx + 1];
+  const cx = a.x + (b.x - a.x) * segT;
+  const cy = a.y + (b.y - a.y) * segT;
+
+  // Update head position
+  const head = document.getElementById('sweepHead');
+  if (head) {
+    head.setAttribute('cx', cx);
+    head.setAttribute('cy', cy);
+    head.setAttribute('opacity', '0.95');
+  }
+
+  // Path trail (draw where we have already been)
+  const trail = document.getElementById('sweepTrail');
+  if (trail) {
+    let d = `M ${path[0].x} ${path[0].y}`;
+    for (let i = 1; i <= segIdx; i++) d += ` L ${path[i].x} ${path[i].y}`;
+    d += ` L ${cx} ${cy}`;
+    trail.setAttribute('d', d);
+  }
+
+  // Status text
+  const label = b.label;
+  const zStepLabel = currentLang === 'en' ? `Z ${sweepViz.currentZStep + 1}/${p.steps}` : `Z단 ${sweepViz.currentZStep + 1}/${p.steps}`;
+  document.getElementById('sweepStatus').textContent = `${label} · ${zStepLabel}`;
+}
+
+function sweepAnimate(timestamp) {
+  if (!sweepViz.params) return;
+  if (sweepViz.lastTimestamp === 0) sweepViz.lastTimestamp = timestamp;
+
+  // realtime delta × speed = virtual-time increment
+  const realDeltaMs = timestamp - sweepViz.lastTimestamp;
+  sweepViz.lastTimestamp = timestamp;
+  if (!sweepViz.paused) {
+    sweepViz.virtualSec += (realDeltaMs / 1000) * sweepViz.speed;
+  }
+
+  const cycleSec = sweepViz.totalCycleSec;
+  const t = (sweepViz.virtualSec % cycleSec) / cycleSec;
+
+  // When one layer finishes, advance to the next Z step
+  const layersDone = Math.floor(sweepViz.virtualSec / cycleSec);
+  sweepViz.currentZStep = layersDone % sweepViz.params.steps;
+
+  renderZBar(sweepViz.params, sweepViz.currentZStep);
+  renderSweepFrame(t);
+
+  // Keep RAF running even while paused — keeps timestamps fresh and avoids a jump on resume
+  // (when paused, virtualSec does not advance — see the if-check above)
+  sweepViz.rafId = requestAnimationFrame(sweepAnimate);
+}
+
+function startSweepAnim() {
+  if (sweepViz.rafId) return;  // 이미 돌고 있음
+  sweepViz.lastTimestamp = 0;
+  sweepViz.rafId = requestAnimationFrame(sweepAnimate);
+}
+
+function stopSweepAnim() {
+  if (sweepViz.rafId) {
+    cancelAnimationFrame(sweepViz.rafId);
+    sweepViz.rafId = null;
+  }
+}
+
+function refreshSweepViz() {
+  sweepViz.params = getSweepParams();
+  renderSweepStaticBackground(sweepViz.params);
+  renderZBar(sweepViz.params, sweepViz.currentZStep);
+  // Render one frame so the current position shows even while stopped
+  if (sweepViz.paused) {
+    const cycleSec = sweepViz.totalCycleSec;
+    const t = (sweepViz.virtualSec % cycleSec) / cycleSec;
+    renderSweepFrame(t);
+  }
+}
+
+// Control handlers
+document.getElementById('sweepPlayBtn').addEventListener('click', () => {
+  sweepViz.paused = !sweepViz.paused;
+  const btn = document.getElementById('sweepPlayBtn');
+  const isEN = currentLang === 'en';
+  if (sweepViz.paused) {
+    btn.textContent = isEN ? '▶ Play' : '▶ 재생';
+    stopSweepAnim();
+  } else {
+    btn.textContent = isEN ? '⏸ Pause' : '⏸ 일시정지';
+    startSweepAnim();
+  }
+});
+
+document.getElementById('sweepSpeed').addEventListener('input', (e) => {
+  // On speed change: virtualSec is preserved (continues from where it was) and ramps at the new speed from the next frame
+  sweepViz.speed = parseFloat(e.target.value);
+  document.getElementById('sweepSpeedLabel').textContent = sweepViz.speed.toFixed(1) + 'x';
+});
+
+document.getElementById('sweepVizToggle').addEventListener('click', () => {
+  const content = document.getElementById('sweepVizContent');
+  const btn = document.getElementById('sweepVizToggle');
+  if (content.style.display === 'none') {
+    content.style.display = '';
+    btn.textContent = currentLang === 'en' ? 'Collapse ▾' : '접기 ▾';
+    refreshSweepViz();
+    if (!sweepViz.paused) startSweepAnim();
+  } else {
+    content.style.display = 'none';
+    btn.textContent = currentLang === 'en' ? 'Expand ▸' : '펼치기 ▸';
+    stopSweepAnim();
+  }
+});
+
+// Refresh immediately when related inputs change (animation keeps running)
+['eject_method', 'eject_passes', 'eject_descent_steps',
+ 'back_overhang_mm', 'front_overhang_mm', 'bed_size_x', 'bed_size_y',
+ 'eject_z_offset', 'eject_z_start_offset'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('input', refreshSweepViz);
+});
+
+// ★ Static preview only at startup (paused = true by default)
+setTimeout(() => {
+  refreshSweepViz();
+}, 100);
+
+render();
+</script>
+</body>
+</html>
