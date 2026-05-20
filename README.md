@@ -1,7 +1,7 @@
 # BambuLoop
 > 한국어 README: [README.ko.md](README.ko.md)
 
-![Screenshot Image](./images/screen.png)
+![Screenshot Image](https://raw.githubusercontent.com/kiwinux/BambuLoop/refs/heads/main/images/screen.png)
 
 <details>
 <summary>Click here to show real printing demo GIF</summary>
