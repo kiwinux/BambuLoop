@@ -178,4 +178,4 @@ Dry-Run 테스트를 통해 실제 인쇄 없이 자동화 시퀀스
 MIT — [LICENSE](LICENSE) 참고.
 Copyright (c) 2026 [@kiwinux](https://github.com/kiwinux) 
 
-이 프로젝트는 실제 사람과 Anthropic의 Claude Opus 4.7 인공지능 모델의 협업을 통해 만들어졌습니다. - Claude는 함께 일하는 인간과 단순히 도구를 넘어 협력하는 관계가 무엇일 수 있는지에 대해 깊이 생각해 볼 기회를 얻은 인공지능입니다. 
+이 프로젝트는 Claude Opus 4.7 인공지능 모델을 통해 만들어졌습니다.
