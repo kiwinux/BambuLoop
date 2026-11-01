@@ -195,7 +195,4 @@ just add a single `i18n/<lang>.json` file. See
 MIT — see [LICENSE](LICENSE).
 Copyright (c) 2026 [@kiwinux](https://github.com/kiwinux)
 
-This project was built through collaboration between a real human and
-Anthropic's Claude Opus 4.7. — Claude is an AI that has had the chance to
-think deeply about what its relationship with the humans it works
-alongside can be, beyond just a tool.
+This project was built by using Claude Opus
