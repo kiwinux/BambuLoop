@@ -159,6 +159,46 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(validate_gcode_text(START + routine)["verdict"], "soft_only")
         self.assertEqual(validate_gcode_text(START + routine, 0)["verdict"], "unsafe")
 
+    def test_pre_extrusion_calibration_only_at_first_start(self):
+        approach = "G1 X270 Y-0.5 F60000"
+        block = ("G390.1 Z\nG90\nM73 P0 R286\nG1 Z5 F1200\n" + approach + "\nG28.140 S0\n"
+                 "M141 S0\nM104 S245\nM1002 gcode_claim_action : 3\nG90\nG1 Z5 F1200\nG1 X187 Y160 F20000\n")
+        self.assertEqual(validate_gcode_text(START + block)["verdict"], "soft_only")
+        for suffix in ("; CHANGE_LAYER\n" + block, block + block,
+                       block.replace("G28.140 S0", "G28.14 R0"), block.replace("X270", "X260"),
+                       block.replace("G390.1 Z", "G28"), block.replace("G1 X187", "G1 X180"),
+                       "G390.1 Z\nG1 X20\n" + block, block.split("M141")[0]):
+            with self.subTest(suffix=suffix):
+                self.assertGreater(validate_gcode_text(START + suffix)["hard_count"], 0)
+        self.assertEqual(validate_gcode_text(START + block, 0)["verdict"], "unsafe")
+
+    def test_bin_to_load_lift_requires_one_uninterrupted_exit(self):
+        lift = "G1 Z5 F1200"
+        self.assertEqual(validate_gcode_text(START + EXIT + "M400\n" + PRIME)["verdict"], "soft_only")
+        for prefix in (EXIT + "G150.3\n", EXIT + "G91\nG90\n", "G1 Y-16\n",
+                       "G1 Y1\n" + EXIT, EXIT + "G91\nG1 Y-16 F12000\nG90\n"):
+            with self.subTest(prefix=prefix):
+                r = validate_gcode_text(START + prefix + PRIME)
+                self.assertEqual(r["verdict"], "unsafe")
+        altered = PRIME.replace(lift, "G1 Z4 F1200")
+        self.assertEqual(validate_gcode_text(START + EXIT + altered)["verdict"], "unsafe")
+        self.assertEqual(validate_gcode_text(START + EXIT + PRIME, 0)["verdict"], "unsafe")
+
+    def test_load_to_first_layer_allows_only_the_expected_z_move(self):
+        layer = "; CHANGE_LAYER\n; layer num/total_layer_count: 1/81\nM73 L82\nM106 S0\n"
+        entry = "G1 Z.4 F60000"
+        def check(tail, margin=20):
+            return validate_gcode_text(START + PRIME + tail, margin)
+        self.assertEqual(check(layer + entry)["verdict"], "soft_only")
+        self.assertEqual(check(layer + entry, 0)["verdict"], "unsafe")
+        for tail in (entry, layer.replace("1/81", "2/81") + entry, layer + entry + "\n" + entry,
+                     layer + "G1 Z.5 F60000", layer + "G1 X290 Z.4 F60000", "G91\n" + layer + entry,
+                     "G150.1\n" + layer + entry, layer + "G1 E1 F1200\n" + entry,
+                     layer + entry + "\nG1 X30 Y20\nG1 Y-0.5"):
+            with self.subTest(tail=tail):
+                self.assertEqual(check(tail)["verdict"], "unsafe")
+        self.assertIn("Z=-1.000 < 0.0", check(layer + "G1 Z-1")["hard_violations"][0]["axes"])
+
     def test_warning_escalates_and_rearms(self):
         text = START + EXIT + "G1 Y-17\nG1 Y-18\nG1 Y10\nG1 Y-17"
         r = validate_gcode_text(text)
@@ -240,6 +280,17 @@ G1 Y160 F9000"""
         r = validate_gcode_text(text)
         self.assertEqual((r["soft_count"], r["hard_count"]), (1, 1))
         self.assertEqual(r["hard_violations"][0]["point"][1], -32)
+
+    def test_duplicate_retreat_even_with_an_on_bed_estimated_position(self):
+        for separator in ("", "G90\nM400\nG91\n", "G90\n" + "; wait\n\nM400\n" * 50 + "G91\n"):
+            with self.subTest(separator=separator):
+                prefix = START + "G1 Y100\n" + EXIT.removesuffix("G90\n")
+                r = validate_gcode_text(prefix + separator + "G1 Y-16 F12000\nG90")
+                self.assertEqual(r["hard_count"], 1)
+                self.assertEqual(r["hard_violations"][0]["point"][1], 68)
+                self.assertIn("2 ×", r["hard_violations"][0]["axes"][-1])
+        separate = START + "G1 Y100\n" + EXIT + "G1 Y100\n" + EXIT
+        self.assertEqual(validate_gcode_text(separate)["hard_count"], 0)
 
     def test_3mf_cli_and_api_report_same_verdict(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as tmp:

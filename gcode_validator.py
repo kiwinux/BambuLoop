@@ -39,7 +39,7 @@ from pathlib import Path
 from typing import Optional
 
 from gcode_processor import sliced_plates
-from validation_paths import known_y_ranges
+from validation_paths import classify_paths
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -248,12 +248,13 @@ def arc_bbox(x0: float, y0: float, x1: float, y1: float,
 # ──────────────────────────────────────────────────────────────────────────────
 class GcodeSimulator:
     def __init__(self, printable: Bounds, physical: Bounds,
-                 max_violations: int = 200, path_limits=None):
+                 max_violations: int = 200, path_limits=None, duplicate_exits=()):
         self.printable = printable
         self.physical  = physical
         self.report    = Report(source="", printable=printable, physical=physical)
         self.max_violations = max_violations
         self.path_limits = path_limits or {}
+        self.duplicate_exits = duplicate_exits
 
         # Modal state
         self.absolute = True          # G90 is the default
@@ -290,7 +291,8 @@ class GcodeSimulator:
 
         allowed = self.path_limits.get(line_no)
         if allowed and (self.unit_scale != 1 or self.arc_plane != "G17"
-                        or any(offset != 0 for offset in self.work_offsets.values())):
+                        or any(offset != 0 for offset in self.work_offsets.values())
+                        or (allowed.held_y is not None and (not self.absolute or self.y != allowed.held_y))):
             allowed = None
         p = self.printable
         y_min, y_max = (allowed.low, allowed.high) if allowed else (p.y_min, p.y_max)
@@ -313,6 +315,11 @@ class GcodeSimulator:
                         boundary = limit if beyond else edge
                         changes[severity].append(f"{axis}={value:.3f} {direction} {boundary}")
 
+        # The G150 macro endpoint is firmware-specific. Two relative exits exceed
+        # the one 16 mm retreat even when the estimated endpoint is on the bed.
+        if line_no in self.duplicate_exits:
+            changes["hard"].append("ΔY=−32 mm (2 × −16 mm)" if self.unit_scale == 1 else "2 × G1 Y-16")
+            note = "H2S purge-bin exit"
         context = ", ".join(filter(None, [allowed.operation if allowed else "", note]))
         for kind, axes in changes.items():
             if not axes:
@@ -451,12 +458,12 @@ def _simulate(text: str, source: str, margin: float, max_violations: int):
         if not (bounds.x_min < bounds.x_max and bounds.y_min < bounds.y_max and bounds.z_min < bounds.z_max):
             raise ValueError("The printable area does not intersect the H2S build volume.")
     lines = text.splitlines()
-    limits = known_y_ranges(lines, bounds, margin)
+    limits, duplicate_exits = classify_paths(lines, bounds, margin)
     y_min = min((v.low for v in limits.values()), default=bounds.y_min)
     y_max = max((v.high for v in limits.values()), default=bounds.y_max)
     envelope = Bounds(bounds.x_min, bounds.x_max, min(y_min, bounds.y_min),
                       max(y_max, bounds.y_max), bounds.z_min, bounds.z_max)
-    sim = GcodeSimulator(bounds, envelope, max_violations, limits)
+    sim = GcodeSimulator(bounds, envelope, max_violations, limits, duplicate_exits)
     for i, line in enumerate(lines, 1):
         sim.feed(i, line)
     sim.report.source = source
@@ -525,7 +532,7 @@ def format_report(r: Report) -> str:
     elif r.skipped_moves or not r.total_moves:
         verdict = f"Unverified: {r.skipped_moves} incomplete moves or no motion."
     elif r.soft_count:
-        verdict = "Recognised purge or eject moves outside the printable area."
+        verdict = "Recognised calibration, purge or eject moves outside the printable area."
     else:
         verdict = "Checked moves stay inside the printable area."
     out.append(verdict)

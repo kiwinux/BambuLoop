@@ -36,7 +36,7 @@
   "validator.header.auto_detected": "Auto-detected from header",
   "validator.header.no_header": "No header — using H2S defaults (340×320×340)",
   "validator.verdict.safe": "Checked moves stay in the printable area",
-  "validator.verdict.soft_only": "Off-bed moves on recognised purge or eject paths",
+  "validator.verdict.soft_only": "Off-bed moves on recognised calibration, purge or eject paths",
   "validator.verdict.unverified": "Unlocated motion or no moves to check",
   "validator.verdict.unsafe": "A move leaves the permitted path",
   "warning.repack.source_3mf_not_found": "Source .3mf file not found: {filename}",

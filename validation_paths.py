@@ -18,6 +18,7 @@ class YRange(NamedTuple):
     low: float
     high: float
     operation: str
+    held_y: float | None = None  # Prior Y required for a Z-only transition
 
 
 _BODY = ("; MACHINE_START_GCODE_END", "; ## Print #", "; ## 인쇄 #", "; CHANGE_LAYER",
@@ -71,24 +72,98 @@ def _load_line_moves(lines, start):
     return ()
 
 
-def _bin_exit(lines, start):
-    """One relative Y retreat after the H2S flushing/wipe routine."""
-    commands = _commands(lines, start, min(start + 40, len(lines)))
-    for _, words in commands:
-        op = words[0]
-        if op in {"G150.1", "G150.2"} or stationary_purge_command(" ".join(words)):
+def _calibration_moves(lines, start):
+    """First pre-extrusion Z calibration and its return toward the bed."""
+    commands = ((n, " ".join(words)) for n, words in _commands(lines, start, min(start + 40, len(lines)))
+                if words[0] != "M73")
+    approach = None
+    for expected in ("G90", "G1 Z5 F1200", "G1 X270 Y-0.5 F60000", "G28.140 S0"):
+        n, command = next(commands, (None, ""))
+        if command != expected:
+            return ()
+        if expected.startswith("G1 X"):
+            approach = n
+
+    # Studio reasserts Z5 at the calibration point before returning to the bed.
+    for _, command in commands:
+        if re.fullmatch(r"M(?:104|141) S\d+(?:\.\d+)?", command) or command == "M1002 GCODE_CLAIM_ACTION : 3":
             continue
-        if words == ["G91"]:
-            for line_no, move in commands:
-                if stationary_purge_command(" ".join(move)):
-                    continue
-                if is_purge_retreat(" ".join(move)):
-                    for _, end in commands:
-                        if not stationary_purge_command(" ".join(end)):
-                            return line_no if end == ["G90"] else None
-                break
+        if command == "G90":
+            lift, z_command = next(commands, (None, ""))
+            _, xy_command = next(commands, (None, ""))
+            if z_command == "G1 Z5 F1200" and xy_command == "G1 X187 Y160 F20000":
+                return approach, lift
+        break
+    return ()
+
+
+def _lift_after_bin_exit(lines, exit_line, load_moves):
+    """Only bridge a recognised retreat directly into the load line's first Z5."""
+    if exit_line is None or exit_line >= load_moves[0]:
+        return None
+    for n, words in _commands(lines, exit_line, load_moves[-1]):
+        command = " ".join(words)
+        if command in {"G90", "G29.2 S1"} or stationary_purge_command(command):
+            continue
+        if n in load_moves and command == "G1 Z5 F1200":
+            return n
         break
     return None
+
+
+# Stationary slicer setup and restart sounds between the prime and the first layer.
+_LAYER_SETUP = {"M73", "M104", "M106", "M204", "M400", "M981", "M991", "M993",
+                "M1006", "M1015.3", "M1015.4", "M620.6"}
+
+
+def _first_layer_z(lines, prime_end):
+    first_layer = False
+    for index in range(prime_end, len(lines)):
+        line = lines[index].strip()
+        if line.startswith(";"):
+            if line.startswith(_POST + _SWEEP + _RESET + ("; [SHUTDOWN]",)):
+                return None
+            if match := re.match(r"^;\s*layer num/total_layer_count\s*:\s*(\d+)/\d+\b", line, re.I):
+                if first_layer or match[1] != "1":
+                    return None
+                first_layer = True
+            elif first_layer and (line.startswith(_BODY) or _LAYER_MARKER.match(line)):
+                return None
+            continue
+        command = line.partition(";")[0].strip().upper()
+        if not command:
+            continue
+        words = command.split()
+        if first_layer and words in (["G1", "Z.4", "F60000"], ["G1", "Z0.4", "F60000"]):
+            return index + 1
+        if command in {"M17", "M83", "G90", "G21", "G29.2 S1", "G29.99", "M211 Z1"} or words[0] in _LAYER_SETUP:
+            continue
+        if not first_layer and words in (["G1", "E-.4", "F1800"], ["G1", "E-0.4", "F1800"]):
+            continue
+        return None
+    return None
+
+
+def _bin_exits(lines, start):
+    """Locate the closed relative exit and detect a second retreat before other motion."""
+    # Another wipe is checked at its own line. Stop at the first unrelated
+    # command or section, so comments and waits cannot hide a repeated retreat.
+    commands = ((n, " ".join(words)) for n, words in _commands(lines, start, len(lines))
+                if not stationary_purge_command(" ".join(words)))
+    _, mode = next(commands, (None, ""))
+    if mode != "G91":
+        return None, None
+    first, move = next(commands, (None, ""))
+    if not is_purge_retreat(move):
+        return None, None
+    n, command = next(commands, (None, ""))
+    closed_exit = first if command == "G90" else None
+    relative = True
+    while command in {"G90", "G91"}:
+        relative = command == "G91"
+        n, command = next(commands, (None, ""))
+    duplicate = n if relative and is_purge_retreat(command) else None
+    return closed_exit, duplicate
 
 
 _LEGACY_FIELDS = {
@@ -181,11 +256,15 @@ def _match_sweep(lines, start, observed_height):
     return moves, YRange(low, high, "H2S eject sweep")
 
 
-def known_y_ranges(lines, printable, margin):
+def classify_paths(lines, printable, margin):
     """Authorise individual motions, never a whole comment-delimited section."""
     prime = YRange(max(printable.y_min - margin, -1.717), printable.y_max, "H2S nozzle load line")
     retreat = YRange(max(printable.y_min - margin, -16.0), printable.y_max, "H2S purge-bin exit")
+    front = max(printable.y_min - margin, -0.5)
     allowances = {}
+    duplicate_exits = set()
+    calibration_seen = False
+    last_bin_exit = None
     phase = "unknown"
     generated = False
     observed_height = 0.0
@@ -214,12 +293,31 @@ def known_y_ranges(lines, printable, margin):
             elif phase in ("start", "reset") and (
                 _LOAD_MARKER.match(line) or line.startswith(("; ----- nozzle load line (v30:", "; ----- 노즐 로드 라인 (v30:"))
             ):
-                for n in _load_line_moves(lines, index + 1):
-                    allowances[n] = prime
+                moves = _load_line_moves(lines, index + 1)
+                if moves:
+                    allowances.update(dict.fromkeys(moves, prime))
+                    lift = _lift_after_bin_exit(lines, last_bin_exit, moves)
+                    if lift is not None:
+                        allowances[lift] = YRange(retreat.low, retreat.high, "H2S purge-bin exit to load line", -16.0)
+                    layer_z = _first_layer_z(lines, moves[-1])
+                    if layer_z is not None:
+                        allowances[layer_z] = YRange(front, prime.high, "H2S load line to first layer", -0.5)
+        elif phase == "start" and not calibration_seen and line.partition(";")[0].upper().split() == ["G390.1", "Z"]:
+            calibration_seen = True
+            moves = _calibration_moves(lines, index + 1)
+            allowances.update(dict.fromkeys(moves, YRange(front, prime.high, "H2S pre-extrusion calibration")))
         elif phase in ("start", "reset") and line.upper().startswith(("G150.1", "G150.2", "G150.3")):
             if line.partition(";")[0].split()[0].upper() not in {"G150.1", "G150.2", "G150.3"}:
                 continue
-            n = _bin_exit(lines, index + 1)
-            if n is not None:
-                allowances[n] = retreat
-    return allowances
+            exit_line, duplicate = _bin_exits(lines, index + 1)
+            if exit_line is not None:
+                last_bin_exit = exit_line
+                allowances[exit_line] = retreat
+            if duplicate is not None:
+                duplicate_exits.add(duplicate)
+    return allowances, duplicate_exits
+
+
+def known_y_ranges(lines, printable, margin):
+    """Return the per-line allowances without the independent duplicate-exit checks."""
+    return classify_paths(lines, printable, margin)[0]

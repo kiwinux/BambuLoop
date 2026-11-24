@@ -1724,7 +1724,7 @@ function showViolationsModal(kind) {
                                  : tValue({ko:'베드 밖 이동', en:'Off-bed moves'});
   const desc = kind === 'hard'
     ? tValue({ko: '이 동작에 허용된 좌표 범위를 벗어났습니다.', en: 'A move leaves the bounds for this operation.'})
-    : tValue({ko: '확인된 퍼징 또는 분리 경로에서 출력 영역을 벗어난 이동입니다.', en: 'Off-bed moves on a recognised purge or eject path.'});
+    : tValue({ko: '확인된 보정·퍼징·분리 경로에서 출력 영역을 벗어난 이동입니다.', en: 'Off-bed moves on a recognised calibration, purge or eject path.'});
 
   const rows = list.map(v => `
     <tr>
