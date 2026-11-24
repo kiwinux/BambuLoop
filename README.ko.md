@@ -2,7 +2,7 @@
 
 > English README: [README.md](README.md)
 
-**[웹에서 BambuLoop 열기](https://kiwinux.github.io/BambuLoop/)**
+## BambuLoop은 이제 웹 버전으로도 지원합니다 ([https://kiwinux.github.io/BambuLoop/](https://kiwinux.github.io/BambuLoop/))
 
 ![Screenshot Image](./images/screen_ko.png)
 

@@ -1,7 +1,7 @@
 # BambuLoop
 > 한국어 README: [README.ko.md](README.ko.md)
 
-**[Open BambuLoop in your browser](https://kiwinux.github.io/BambuLoop/)**
+## BambuLoop is now supported in web version ([https://kiwinux.github.io/BambuLoop/](https://kiwinux.github.io/BambuLoop/))
 
 ![Screenshot Image](https://raw.githubusercontent.com/kiwinux/BambuLoop/refs/heads/main/images/screen.png)
 
