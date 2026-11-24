@@ -351,11 +351,19 @@ main {
 .result-title { color: var(--green); font-weight: 600; font-size: 12px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.1em; }
 .result-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px; color: var(--text-dim); margin-bottom: 12px; }
 .result-stats .v { color: var(--text); font-weight: 600; }
+.safety-groups {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 8px; margin-top: 8px;
+}
+.safety-groups > div { padding: 8px; border-left: 3px solid var(--text-dim); background: var(--bg-2); }
+.safety-groups [data-safety-group="soft"] { border-color: #f5a623; background: rgba(245,166,35,0.06); }
+.safety-groups [data-safety-group="hard"] { border-color: #e74c3c; background: rgba(231,76,60,0.08); }
+.safety-groups button { padding: 2px 8px; margin-left: 6px; }
 .btn-download {
   display: inline-block; width: 100%; text-align: center;
   background: var(--green); color: var(--bg-0);
   padding: 10px; text-decoration: none; font-weight: 700;
-  text-transform: uppercase; letter-spacing: 0.1em; font-size: 12px;
+  letter-spacing: 0.1em; font-size: 12px;
   font-family: var(--mono);
 }
 .btn-download:hover { background: #7ce098; }
@@ -566,6 +574,7 @@ select option:disabled {
 }
 .privacy-footer h2 { margin: 0 0 6px; color: var(--text); font-size: 13px; }
 .privacy-footer p { margin: 0; font-size: 12px; line-height: 1.65; }
+.privacy-footer p + p { margin-top: 6px; }
 
 .plate-check-setting { margin-bottom: 12px; }
 .plate-check-setting .field-hint { margin: 4px 0 0 44px; overflow-wrap: anywhere; }

@@ -21,6 +21,7 @@ const I18N = {
     sound_preview_title: '브라우저에서 미리듣기',
     privacy_heading: '개인정보 처리방침',
     privacy_files: '선택한 G-code·3MF 파일과 생성된 결과 파일은 브라우저 안에서만 처리되며 외부 서버로 전송되지 않습니다.',
+    developer_notice: '개발자는 BambuLoop 사용으로 발생하는 문제에 대해 책임을 지지 않습니다.',
     panel_upload: '파일',
     verify_plate: '첫 인쇄에서 원본 빌드 플레이트 확인',
     part_fan: '파트 팬', aux_fan: '보조 팬', chamber_fan: '챔버 팬', no_saved_melodies: '저장된 멜로디 없음',
@@ -46,7 +47,7 @@ const I18N = {
     btn_generate: '통합 G-code 생성',
     btn_dryrun: '드라이런 파일 생성',
     btn_reset: '초기화',
-    btn_download: '↓ 다운로드',
+    btn_download: '{ext} 파일 다운로드',
     btn_custom_melody: '커스텀 멜로디 만들기',
     modal_melody_builder: '커스텀 멜로디 빌더',
     btn_save_melody: '멜로디 저장',
@@ -67,8 +68,11 @@ const I18N = {
     safety_moves: '이동 명령',
     safety_bbox: '실제 BBox',
     safety_printable: '인쇄 영역',
-    safety_physical: '구간별 검사 범위',
-    purge_margin: '퍼징 마진',
+    warning_bounds: '일반 이동 경고 범위',
+    warning_margin: '여유 마진',
+    warning_margin_help: '일반 이동의 X·Y 양방향과 Z 상한에 적용됩니다. 기준 범위를 이 거리만큼 넘는 이동까지 노란색으로 표시합니다.',
+    safety_ok: '✅ 모든 GCODE 이동이 정상 범위입니다',
+    safety_expected: '예상된 영역 밖 이동',
     safety_soft: '영역 밖',
     safety_hard: '충돌 위험',
     safety_details: '상세',
@@ -111,6 +115,7 @@ const I18N = {
     sound_preview_title: 'Preview in browser',
     privacy_heading: 'Privacy policy',
     privacy_files: 'The G-code and 3MF files you select, and the files you generate, are processed in your browser. They are never sent to an external server.',
+    developer_notice: 'The developer accepts no responsibility for any issues arising from the use of BambuLoop.',
     panel_upload: 'Files',
     verify_plate: 'Check the source build plate on the first print',
     part_fan: 'Part fan', aux_fan: 'Auxiliary fan', chamber_fan: 'Chamber fan', no_saved_melodies: 'No saved melodies',
@@ -136,7 +141,7 @@ const I18N = {
     btn_generate: 'Generate G-code',
     btn_dryrun: 'Generate dry-run',
     btn_reset: 'Reset',
-    btn_download: '↓ Download',
+    btn_download: 'Download {ext} file',
     btn_custom_melody: 'Create Custom Melody',
     modal_melody_builder: 'Custom Melody Builder',
     btn_save_melody: 'Save melody',
@@ -157,8 +162,11 @@ const I18N = {
     safety_moves: 'Move Commands',
     safety_bbox: 'Actual BBox',
     safety_printable: 'Printable Area',
-    safety_physical: 'Envelope of checked paths',
-    purge_margin: 'Purge margin',
+    warning_bounds: 'Ordinary move warning range',
+    warning_margin: 'Warning margin',
+    warning_margin_help: 'For ordinary moves, this distance extends the yellow warning range in X, Y and upper Z.',
+    safety_ok: '✅ All GCODE moves are within their permitted ranges',
+    safety_expected: 'Expected out-of-area moves',
     safety_soft: 'Out of Area',
     safety_hard: 'Collision Risk',
     safety_details: 'Details',
@@ -217,8 +225,6 @@ const KO_TO_EN = {
   "이동 명령:": "Move Commands:",
   "실제 BBox:": "Actual BBox:",
   "인쇄 영역:": "Printable Area:",
-  "⚠️ 영역 밖:": "⚠️ Out of Area:",
-  "⛔ 충돌 위험:": "⛔ Collision Risk:",
   "브라우저 미리듣기": "Browser Preview",
   "프린터 미리듣기": "Printer Preview",
   "냉각 시퀀스": "Cooling Sequence",
@@ -906,6 +912,12 @@ function dryRunHeight() {
     ? heights.reduce((highest, h) => Math.max(highest, h), 0) : null;
 }
 
+function readWarningMargin() {
+  const input = document.getElementById('safetyMargin');
+  if (!input.reportValidity()) return null;
+  return input.value === '' ? 0 : input.valueAsNumber;
+}
+
 function openDryRunModal() {
   // Refresh the modal info panel (based on the uploaded file)
   const sampleStored = state.jobs.length > 0 ? state.jobs[0].stored_name : null;
@@ -943,6 +955,8 @@ async function showClearanceError(response, data) {
 }
 
 document.getElementById('drGenerate').addEventListener('click', async () => {
+  const warningMargin = readWarningMargin();
+  if (warningMargin === null) { closeDryRunModal(); return; }
   const sampleStored = state.jobs.length > 0 ? state.jobs[0].stored_name : null;
   const simHeight = dryRunHeight();
   const simNozzle = state.jobs.length > 0 ? (state.jobs[0].info.nozzle_temp || 220) : 220;
@@ -967,7 +981,7 @@ document.getElementById('drGenerate').addEventListener('click', async () => {
 
   try {
     const res = await requestJob('dry_run', {
-      settings: collectSettings(), sample_stored_name: sampleStored,
+      settings: collectSettings(), safety_margin_mm: warningMargin, sample_stored_name: sampleStored,
       simulated_print_height: simHeight, simulated_nozzle_temp: simNozzle,
       simulated_bed_temp: simBed, phases,
     });
@@ -1004,6 +1018,8 @@ document.getElementById('drGenerate').addEventListener('click', async () => {
 
 generateBtn.addEventListener('click', async () => {
   if (state.jobs.length === 0) return;
+  const warningMargin = readWarningMargin();
+  if (warningMargin === null) return;
 
   const sources = new Set(state.jobs.map(j => j.info.source_3mf_stored).filter(Boolean));
   if (sources.size > 1 && state.jobs[0].info.source_3mf_stored) {
@@ -1023,7 +1039,7 @@ generateBtn.addEventListener('click', async () => {
         stored_name: j.stored_name, original_name: j.original_name, count: j.count,
         source_3mf_stored: j.info.source_3mf_stored || null, source_plate_name: j.info.source_plate_name || null,
       })),
-      settings: collectSettings(), want_3mf: true
+      settings: collectSettings(), safety_margin_mm: warningMargin, want_3mf: true
     };
     let res = await requestJob('generate', payload);
     if (revision !== resultRevision) return;
@@ -1069,6 +1085,7 @@ document.getElementById('resetBtn').addEventListener('click', async () => {
     {okLabel: isEN ? 'Reset' : '초기화'}
   );
   if (!ok) return;
+  document.getElementById('safetyMargin').value = 0;
   ++inputVersion;
   activeGeneration = 0;
   clearResult();
@@ -1608,7 +1625,8 @@ function resultLabels() {
   document.getElementById('resultPlateCheck').textContent =
     [data.plate_target, data.bed_type, tValue(modes[data.plate_check])].filter(Boolean).join(' · ');
   const link = document.getElementById('downloadLink');
-  link.textContent = t('btn_download').replace('↓ ', '') + ' · ' + (filename.endsWith('.3mf') ? '.gcode.3mf' : '.gcode');
+  const extension = filename.toLowerCase().endsWith('.3mf') ? '.GCODE.3MF' : '.GCODE';
+  link.textContent = t('btn_download').replace('{ext}', extension);
   const note = document.getElementById('repackNote');
   note.hidden = !data.repack_error;
   note.textContent = tValue(data.repack_error);
@@ -1629,37 +1647,57 @@ function displayResult({data, blob}, cycles = 0) {
   renderSafety(data.safety, filename);
 }
 
+const safetyGroups = {
+  expected: {count: 'expected_count', moves: 'expected_moves', color: 'var(--text-dim)',
+    desc: {ko: '확인된 보정·퍼징·분리 경로에서 출력 영역을 벗어난 이동입니다.', en: 'Off-bed moves on a recognised calibration, purge or eject path.'}},
+  soft: {count: 'soft_count', moves: 'soft_violations', color: '#f5a623',
+    desc: {ko: '일반 이동이 출력 영역을 벗어났습니다. 해당 줄의 좌표와 경로를 확인하세요.', en: 'An ordinary move leaves the printable area. Check its coordinates and path.'}},
+  hard: {count: 'hard_count', moves: 'hard_violations', color: '#e74c3c',
+    desc: {ko: '검사 범위를 벗어났거나 동작 순서에서 충돌 위험이 발견됐습니다.', en: 'A move exceeds the checked limits or the command sequence poses a collision risk.'}},
+};
+
 function renderSafety(safety, filename) {
   const box = document.getElementById('safetyBox');
   if (!box) return;
   lastSafetyFile = filename || null;
+  // A cached engine from before the three groups reported recognised moves as soft.
+  if (safety && !safety.error && safety.expected_count === undefined && safety.soft_count !== undefined) {
+    safety = {...safety, expected_count: safety.soft_count, expected_moves: safety.soft_violations,
+      soft_count: 0, soft_violations: [], verdict: safety.verdict === 'soft_only' ? 'expected_only' : safety.verdict};
+  }
   lastSafetyData = filename ? (safety || {error: true}) : null;
   box.style.display = filename ? 'block' : 'none';
   if (!filename) return;
+  for (const [kind, group] of Object.entries(safetyGroups)) {
+    const card = box.querySelector('[data-safety-group="' + kind + '"]');
+    const count = safety?.[group.count];
+    card.querySelector('strong').textContent = count ?? '—';
+    card.querySelector('button').disabled = !count || !safety[group.moves]?.length;
+  }
   if (!safety || safety.error) {
     box.style.borderColor = '#f5a623';
     box.style.background = 'rgba(245,166,35,0.06)';
     document.getElementById('safetyVerdict').textContent = tValue({
       ko: '검증 실패 · 이 파일을 다시 검증하세요', en: 'Validation failed. Recheck this file.'
     });
-    for (const id of ['sMoves','sBbox','sPrintable','sPhysical','sSoftCount','sHardCount']) {
+    for (const id of ['sMoves','sBbox','sPrintable','sPhysical']) {
       document.getElementById(id).textContent = '—';
     }
     document.getElementById('sHeader').textContent = typeof safety?.error === 'string' ? safety.error : '';
-    document.getElementById('sSoftDetailBtn').disabled = true;
-    document.getElementById('sHardDetailBtn').disabled = true;
     return;
   }
 
   // verdict badge + box colour
   const verdictEl = document.getElementById('safetyVerdict');
-  verdictEl.textContent = tValue(safety.verdict_label);
+  const passed = safety.verdict === 'safe' || safety.verdict === 'expected_only';
+  verdictEl.textContent = passed ? t('safety_ok') : tValue(safety.verdict_label);
   const colorMap = {
     'safe':      { border: '#2ecc71', bg: 'rgba(46,204,113,0.06)' },
+    'unverified': { border: 'var(--text-dim)', bg: 'var(--bg-2)' },
     'soft_only': { border: '#f5a623', bg: 'rgba(245,166,35,0.06)' },
     'unsafe':    { border: '#e74c3c', bg: 'rgba(231,76,60,0.08)' },
   };
-  const c = colorMap[safety.verdict] || colorMap['soft_only'];
+  const c = colorMap[passed ? 'safe' : safety.verdict] || colorMap['soft_only'];
   box.style.borderColor = c.border;
   box.style.background = c.bg;
 
@@ -1671,32 +1709,27 @@ function renderSafety(safety, filename) {
     document.getElementById('sBbox').textContent =
       `[${fmt(safety.bbox_min)}] ~ [${fmt(safety.bbox_max)}]`;
   } else {
-    document.getElementById('sBbox').textContent = tValue({ko:'(이동 없음)', en:'(no moves)'});
+    document.getElementById('sBbox').textContent = safety.total_moves
+      ? tValue({ko:'3축 좌표 미확정', en:'3D bounds unavailable'})
+      : tValue({ko:'(이동 없음)', en:'(no moves)'});
   }
-  const p = safety.printable, ph = safety.physical;
+  const p = safety.printable, warning = safety.warning_bounds;
   document.getElementById('sPrintable').textContent =
     `X[${p.x_min},${p.x_max}] Y[${p.y_min},${p.y_max}] Z[${p.z_min},${p.z_max}]`;
-  document.getElementById('sPhysical').textContent =
-    (currentLang === 'en' ? `X[${ph.x_min},${ph.x_max}] Y[${ph.y_min},${ph.y_max}] Z[${ph.z_min},${ph.z_max}] (margin ${safety.margin_mm}mm)` : `X[${ph.x_min},${ph.x_max}] Y[${ph.y_min},${ph.y_max}] Z[${ph.z_min},${ph.z_max}] (마진 ${safety.margin_mm}mm)`);
+  document.getElementById('sPhysical').textContent = warning
+    ? `X[${warning.x_min},${warning.x_max}] Y[${warning.y_min},${warning.y_max}] Z[${warning.z_min},${warning.z_max}] (${t('warning_margin')} ${safety.margin_mm} mm)` : '—';
 
-  document.getElementById('sSoftCount').textContent = safety.soft_count;
-  document.getElementById('sHardCount').textContent = safety.hard_count;
-  document.getElementById('sSoftDetailBtn').disabled = safety.soft_count === 0;
-  document.getElementById('sHardDetailBtn').disabled = safety.hard_count === 0;
   const info = [tValue(safety.header_note)];
   if (safety.source?.includes('!')) info.push(safety.source.slice(safety.source.lastIndexOf('!') + 1));
   if (safety.skipped_moves) info.push(tValue({ko: '미확인 이동', en: 'Incomplete moves'}) + ' ' + safety.skipped_moves);
   document.getElementById('sHeader').textContent = info.join(' · ');
-
-  document.getElementById('safetyMargin').value = safety.margin_mm;
 }
 
 // Re-validate (margin changed)
 document.getElementById('safetyRecheck').addEventListener('click', async () => {
   if (!lastSafetyFile) { tToast({ko: '먼저 G-code를 생성하세요', en: 'Generate G-code first'}, 'error'); return; }
-  const input = document.getElementById('safetyMargin');
-  if (!input.reportValidity()) return;
-  const margin = input.value === '' ? 20 : input.valueAsNumber;
+  const margin = readWarningMargin();
+  if (margin === null) return;
   const filename = lastSafetyFile;
   const btn = document.getElementById('safetyRecheck');
   btn.disabled = true;
@@ -1719,17 +1752,15 @@ document.getElementById('safetyRecheck').addEventListener('click', async () => {
 // Violation detail modal
 function showViolationsModal(kind) {
   if (!lastSafetyData || lastSafetyData.error) return;
-  const list = kind === 'hard' ? lastSafetyData.hard_violations : lastSafetyData.soft_violations;
-  const title = kind === 'hard' ? tValue({ko:'허용 경로 이탈', en:'Moves beyond the permitted path'})
-                                 : tValue({ko:'베드 밖 이동', en:'Off-bed moves'});
-  const desc = kind === 'hard'
-    ? tValue({ko: '이 동작에 허용된 좌표 범위를 벗어났습니다.', en: 'A move leaves the bounds for this operation.'})
-    : tValue({ko: '확인된 보정·퍼징·분리 경로에서 출력 영역을 벗어난 이동입니다.', en: 'Off-bed moves on a recognised calibration, purge or eject path.'});
+  const group = safetyGroups[kind];
+  const list = lastSafetyData[group.moves];
+  const title = t('safety_' + kind);
+  const desc = tValue(group.desc);
 
   const rows = list.map(v => `
     <tr>
       <td style="padding:6px; border-bottom:1px solid var(--line); color:var(--text-dim); font-family:monospace; font-size:11px;">L${v.line_no}</td>
-      <td style="padding:6px; border-bottom:1px solid var(--line); color:${kind === 'hard' ? '#e74c3c' : '#f5a623'}; font-family:monospace; font-size:11px; word-break:break-all;">${escapeHtml(v.axes.join(', '))}</td>
+      <td style="padding:6px; border-bottom:1px solid var(--line); color:${group.color}; font-family:monospace; font-size:11px; word-break:break-all;">${escapeHtml(v.axes.join(', '))}</td>
       <td style="padding:6px; border-bottom:1px solid var(--line); color:var(--text); font-family:monospace; font-size:11px; word-break:break-all;">${escapeHtml(v.command)}</td>
       <td style="padding:6px; border-bottom:1px solid var(--line); color:var(--text-faint); font-size:10px;">${escapeHtml(v.note || '')}</td>
     </tr>
@@ -1770,8 +1801,9 @@ function showViolationsModal(kind) {
   modal.style.display = 'flex';
 }
 
-document.getElementById('sSoftDetailBtn').addEventListener('click', () => showViolationsModal('soft'));
-document.getElementById('sHardDetailBtn').addEventListener('click', () => showViolationsModal('hard'));
+for (const card of document.querySelectorAll('[data-safety-group]')) {
+  card.querySelector('button').addEventListener('click', () => showViolationsModal(card.dataset.safetyGroup));
+}
 
 // Hide the safety box in the result card by default
 (function hideSafetyInitially() {

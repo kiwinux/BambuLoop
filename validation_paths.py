@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from typing import NamedTuple
 
@@ -49,6 +50,8 @@ _LOAD_LINE = (
     "G90", "G1 Z5", "G1 X270 Y-0.5", "G28.14 R0", "G91", "G1 Z0.8",
     "G90", "G1 X250", "G1 X290 E20", "G91", "G3 Z0.4 I1.217 J0 P1", "G90",
 )
+_FEED_WORD = re.compile(r"F(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)")
+_EXTRUSION_WORD = re.compile(r"E[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)")
 _LOAD_AUX = {"M83", "M109", "M400", "M500", "G29.2", "M73"}
 _LOAD_MARKER = re.compile(r"^;\s*=+\s*noo?z+le load line\s*=+", re.I)
 
@@ -58,8 +61,8 @@ def _load_line_moves(lines, start):
     position = 0
     for line_no, words in _commands(lines, start, min(start + 96, len(lines))):
         op = words[0]
-        args = [word for word in words[1:] if not word.startswith("F")]
-        if op in _LOAD_AUX or (op == "G1" and args and all(w.startswith("E") for w in args)):
+        args = [word for word in words[1:] if not _FEED_WORD.fullmatch(word)]
+        if op in _LOAD_AUX or (op == "G1" and args and all(_EXTRUSION_WORD.fullmatch(w) for w in args)):
             if op == "G1":
                 moves.append(line_no)
             continue
@@ -70,6 +73,34 @@ def _load_line_moves(lines, start):
         if position == len(_LOAD_LINE):
             return moves
     return ()
+
+
+def _first_homing_xy(lines, start):
+    """Find the H2S absolute bed-centre approach immediately before Z homing."""
+    expected = ("M1009 Q1 L1", "G91", "G380 S2 Z30 F1200", "G90",
+                "G1 X170 Y160 F30000", "G28 Z P0 T250", "M1009 Q1 L0")
+    end = next((i for i in range(start, min(start + 96, len(lines)))
+                if re.fullmatch(r";\s*=+\s*first homing end\s*=+", lines[i].strip(), re.I)), start)
+    commands = ((n, " ".join(words)) for n, words in _commands(lines, start, end) if words[0] != "M73")
+    homed_x = False
+    for _, command in commands:
+        if command == "G28 X T300":
+            homed_x = True
+        elif homed_x and command == expected[0]:
+            break
+        elif (command not in {"G150.3 F18000", "T1000 O0", "G150.1 F18000", "M1002 GCODE_CLAIM_ACTION : 74"}
+              and command.split()[0] not in {"M400", "M972"}):
+            homed_x = False
+    else:
+        return None
+    approach = None
+    for target in expected[1:]:
+        n, command = next(commands, (None, ""))
+        if command != target:
+            return None
+        if command.startswith("G1 "):
+            approach = n
+    return approach
 
 
 def _calibration_moves(lines, start):
@@ -116,6 +147,10 @@ _LAYER_SETUP = {"M73", "M104", "M106", "M204", "M400", "M981", "M991", "M993",
                 "M1006", "M1015.3", "M1015.4", "M620.6"}
 
 
+# The feed varies with the sliced profile; only the Z target changes position.
+_FIRST_LAYER_Z = re.compile(r"G1\s+Z0?\.40*\s+F([0-9]+(?:\.[0-9]*)?|\.[0-9]+)")
+
+
 def _first_layer_z(lines, prime_end):
     first_layer = False
     for index in range(prime_end, len(lines)):
@@ -134,8 +169,9 @@ def _first_layer_z(lines, prime_end):
         if not command:
             continue
         words = command.split()
-        if first_layer and words in (["G1", "Z.4", "F60000"], ["G1", "Z0.4", "F60000"]):
-            return index + 1
+        if first_layer and (move := _FIRST_LAYER_Z.fullmatch(command)):
+            if 0 < float(move[1]) < math.inf:
+                return index + 1
         if command in {"M17", "M83", "G90", "G21", "G29.2 S1", "G29.99", "M211 Z1"} or words[0] in _LAYER_SETUP:
             continue
         if not first_layer and words in (["G1", "E-.4", "F1800"], ["G1", "E-0.4", "F1800"]):
@@ -256,14 +292,31 @@ def _match_sweep(lines, start, observed_height):
     return moves, YRange(low, high, "H2S eject sweep")
 
 
-def classify_paths(lines, printable, margin):
-    """Authorise individual motions, never a whole comment-delimited section."""
-    prime = YRange(max(printable.y_min - margin, -1.717), printable.y_max, "H2S nozzle load line")
-    retreat = YRange(max(printable.y_min - margin, -16.0), printable.y_max, "H2S purge-bin exit")
-    front = max(printable.y_min - margin, -0.5)
+def _terminal_filament_end(lines):
+    # A filament change within the model can use the same end marker.
+    for index in range(len(lines) - 1, -1, -1):
+        line = lines[index].strip()
+        if not line.startswith(";"):
+            continue
+        marker = line[1:].strip().lower()
+        if marker == "filament end gcode":
+            return index
+        if marker == "filament start gcode" or _LAYER_MARKER.match(line):
+            break
+    return None
+
+
+def classify_paths(lines, printable, margin=None, *, service_changes=None, homing_xy=None):
+    """Return recognised motion limits. Older callers may still pass a margin."""
+    # The prime arc is centred at Y=-0.5 with a 1.217 mm radius.
+    front = -0.5
+    prime = YRange(front - 1.217, printable.y_max, "H2S nozzle load line")
+    retreat = YRange(-16.0, printable.y_max, "H2S purge-bin exit")
     allowances = {}
     duplicate_exits = set()
     calibration_seen = False
+    first_homing_seen = False
+    filament_end = _terminal_filament_end(lines)
     last_bin_exit = None
     phase = "unknown"
     generated = False
@@ -271,11 +324,15 @@ def classify_paths(lines, printable, margin):
     for index, raw in enumerate(lines):
         line = raw.lstrip()
         if line.startswith(";"):
+            previous_phase = phase
             if phase in ("start", "unknown") and line.startswith("; #   BambuLoop"):
                 generated = True
                 phase = "start"
             elif phase == "unknown" and re.match(r"^;\s*=+\s*machine:\s*H2S\b", line, re.I):
                 phase = "start"
+            elif (index == filament_end or line.startswith(("; [SHUTDOWN]", "; ## [DRY-RUN] all cycles complete"))
+                  or line[1:].strip().lower() in ("machine_end_gcode_start", "machine_end_gcode")):
+                phase = "shutdown"
             elif line.startswith(_BODY) or _LAYER_MARKER.match(line):
                 if line.startswith(("; ## Print #", "; ## 인쇄 #")):
                     observed_height = 0.0
@@ -290,6 +347,12 @@ def classify_paths(lines, printable, margin):
                 moves, envelope = _match_sweep(lines, index + 1, observed_height)
                 for n in moves:
                     allowances[n] = envelope
+            elif (phase == "start" and homing_xy is not None and not first_homing_seen
+                  and re.fullmatch(r";\s*=+\s*first homing start\s*=+", line.strip(), re.I)):
+                first_homing_seen = True
+                approach = _first_homing_xy(lines, index + 1)
+                if approach is not None:
+                    homing_xy.add(approach)
             elif phase in ("start", "reset") and (
                 _LOAD_MARKER.match(line) or line.startswith(("; ----- nozzle load line (v30:", "; ----- 노즐 로드 라인 (v30:"))
             ):
@@ -302,6 +365,8 @@ def classify_paths(lines, printable, margin):
                     layer_z = _first_layer_z(lines, moves[-1])
                     if layer_z is not None:
                         allowances[layer_z] = YRange(front, prime.high, "H2S load line to first layer", -0.5)
+            if service_changes is not None and previous_phase != phase:
+                service_changes[index + 1] = phase not in ("body", "unknown")
         elif phase == "start" and not calibration_seen and line.partition(";")[0].upper().split() == ["G390.1", "Z"]:
             calibration_seen = True
             moves = _calibration_moves(lines, index + 1)
@@ -318,6 +383,6 @@ def classify_paths(lines, printable, margin):
     return allowances, duplicate_exits
 
 
-def known_y_ranges(lines, printable, margin):
+def known_y_ranges(lines, printable, margin=None):
     """Return the per-line allowances without the independent duplicate-exit checks."""
-    return classify_paths(lines, printable, margin)[0]
+    return classify_paths(lines, printable)[0]

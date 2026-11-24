@@ -239,12 +239,17 @@ try {
     await cdp("DOM.setFileInputFiles",{nodeId,files});
   }
   assert.match(await evaluate("document.querySelector('footer [data-i18n=privacy_files]').textContent"), /외부 서버로 전송되지 않습니다/);
+  assert.equal(await evaluate("document.querySelector('footer [data-i18n=developer_notice]').innerText"), "개발자는 BambuLoop 사용으로 발생하는 문제에 대해 책임을 지지 않습니다.");
   console.log("Static page and local presets loaded.");
   await choose([input]);
   await wait("document.querySelectorAll('.job-item').length === 2","3MF import");
   await evaluate("document.getElementById('generateBtn').click()");
   await wait("document.querySelector('#result.show #downloadLink')?.download.endsWith('.3mf')","combined result");
   console.log("3MF imported and generated in the worker.");
+  const downloadCaption = () => evaluate("document.getElementById('downloadLink').innerText");
+  assert.equal(await downloadCaption(), ".GCODE.3MF 파일 다운로드");
+  assert.equal(await evaluate("document.getElementById('safetyVerdict').innerText"), "✅ 모든 GCODE 이동이 정상 범위입니다");
+  assert.equal(await evaluate("getComputedStyle(document.getElementById('safetyBox')).borderTopColor"), "rgb(46, 204, 113)");
   const output=await evaluate("document.getElementById('downloadLink').download");
   await evaluate("document.getElementById('downloadLink').click()");
   const bytes=await until(()=>fs.readFile(path.join(downloads,output)),"download");
@@ -271,7 +276,7 @@ try {
   assert.equal((reset.match(/^G1 Y-16\b/gm)||[]).length,1);
   assert.equal((reset.match(/^\s*G150\.1\b/gm)||[]).length,1);
   await evaluate("const m=document.getElementById('safetyMargin'); m.value='0';document.getElementById('safetyRecheck').click()");
-  await wait("document.getElementById('sPhysical').textContent.includes('0mm') && document.getElementById('sHeader').textContent.includes('plate_2.gcode')","downloaded 3MF recheck");
+  await wait("document.getElementById('sPhysical').textContent.includes('0 mm') && document.getElementById('sHeader').textContent.includes('plate_2.gcode')","downloaded 3MF recheck");
   await evaluate("document.getElementById('verify_build_plate').click()");
   assert.match(await evaluate("document.getElementById('resultPlateCheck').textContent"),/1회/);
   assert.match(await evaluate("document.getElementById('plateCheckSource').textContent"),/생략/);
@@ -292,13 +297,16 @@ try {
   await evaluate("document.getElementById('langToggle').click()");
   await wait("document.documentElement.lang === 'en' && document.querySelector('[data-i18n=cooling_wait_hint]').textContent.includes('default 5')","English labels");
   assert.match(await evaluate("document.querySelector('footer [data-i18n=privacy_files]').textContent"), /never sent to an external server/);
+  assert.equal(await evaluate("document.querySelector('footer [data-i18n=developer_notice]').innerText"), "The developer accepts no responsibility for any issues arising from the use of BambuLoop.");
+  assert.equal(await downloadCaption(), "Download .GCODE.3MF file");
   await evaluate("document.getElementById('dryRunBtn').click();document.getElementById('drGenerate').click()");
   await wait("document.querySelector('#result.show #downloadLink')?.download.startsWith('DRYRUN')","dry run");
-  assert.ok(!(await evaluate("document.getElementById('downloadLink').textContent")).includes("3mf"));
+  assert.equal(await downloadCaption(), "Download .GCODE file");
   const dryText=await evaluate("fetch(document.getElementById('downloadLink').href).then(r=>r.text())");
   assert.equal(checks(dryText),0);
   await evaluate("document.getElementById('langToggle').click()");
   await checkLocale("ko");
+  assert.equal(await downloadCaption(), ".GCODE 파일 다운로드");
   assert.match(await evaluate("document.getElementById('drGenerate').textContent"), /생성/);
   assert.equal(await evaluate("document.querySelector('[data-i18n=total_prints]').textContent"), "총 인쇄");
   await evaluate("document.getElementById('langToggle').click()");
@@ -326,7 +334,8 @@ try {
   await evaluate("document.getElementById('resetBtn').click();document.getElementById('alertModalOk').click()");
   await wait("document.querySelectorAll('.job-item').length === 0 && !document.querySelector('#result.show')","reset");
   const tall=path.join(scratch,"tall.gcode");
-  await fs.writeFile(tall,fixture(1,42));
+  const modelMoves = "G1 Y-0.5\nG1 Y-25\nG1 X10 Y10 Z1\n; filament end gcode";
+  await fs.writeFile(tall,fixture(1,42).replace("; filament end gcode", modelMoves));
   await choose([tall]); await wait("document.querySelectorAll('.job-item').length === 1","plain G-code");
   await evaluate("document.getElementById('eject_method').value='bottom_only';document.getElementById('generateBtn').click()");
   await wait("document.getElementById('alertModal').style.display === 'flex'","42 mm block");
@@ -336,6 +345,31 @@ try {
   await evaluate("document.getElementById('eject_method').value='none';document.getElementById('generateBtn').click()");
   await wait("document.querySelector('#result.show #downloadLink')?.download.endsWith('.gcode')","plain G-code download");
   assert.equal((await evaluate("document.getElementById('downloadLink').href")).startsWith("blob:"),true);
+  assert.equal(await downloadCaption(), "Download .GCODE file");
+  const counts = () => evaluate("[...document.querySelectorAll('[data-safety-group] strong')].map(el=>Number(el.textContent))");
+  assert.deepEqual(await counts(), [1,1,1]);
+  assert.equal(await evaluate("getComputedStyle(document.getElementById('safetyBox')).borderTopColor"), "rgb(231, 76, 60)");
+  for (const [kind, expected, command] of [
+    ["expected","Expected out-of-area moves","G1 Y-16"],
+    ["soft","Out of Area","G1 Y-0.5"],
+    ["hard","Collision Risk","G1 Y-25"],
+  ]) {
+    await evaluate("document.querySelector('[data-safety-group=" + kind + "] button').click()");
+    assert.equal(await evaluate("document.querySelector('#violationsModal .modal-header span').textContent"),expected);
+    assert.ok((await evaluate("document.querySelector('#violationsModal tbody').textContent")).includes(command));
+    await evaluate("document.querySelector('#violationsModal .modal-close').click()");
+  }
+  // Y=-25 is 20 mm beyond the ordinary front reference at -5.
+  for (const [margin, expectedCounts] of [[20,[1,1,0]],[0,[1,1,1]]]) {
+    await evaluate("document.getElementById('safetyMargin').value='" + margin + "';document.getElementById('safetyRecheck').click()");
+    await wait("!document.getElementById('safetyRecheck').disabled && document.getElementById('sPhysical').textContent.includes('(Warning margin " + margin + " mm)')","warning margin applied");
+    assert.deepEqual(await counts(), expectedCounts);
+  }
+  await evaluate("document.getElementById('safetyMargin').value='20';document.getElementById('generateBtn').click()");
+  await wait("document.querySelector('#result.show #sPhysical')?.textContent.includes('Warning margin 20 mm')","generation reads the entered margin");
+  assert.deepEqual(await counts(), [1,1,0]);
+  await evaluate("document.getElementById('safetyMargin').value='0';document.getElementById('dryRunBtn').click();document.getElementById('drGenerate').click()");
+  await wait("document.querySelector('#result.show #downloadLink')?.download.startsWith('DRYRUN') && document.getElementById('sPhysical').textContent.includes('Warning margin 0 mm')","dry run reads the entered margin");
   const sampleFlag = process.argv.indexOf("--sample");
   if (sampleFlag !== -1) {
     const sample = await fs.realpath(process.argv[sampleFlag+1]);

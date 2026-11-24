@@ -141,8 +141,8 @@ SOFTWARE. -->
           <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; gap:8px; flex-wrap:wrap;">
             <div style="font-weight:700; font-size:13px;" id="safetyVerdict">—</div>
             <div style="display:flex; gap:6px; align-items:center;">
-              <span style="font-size:11px; color:var(--text-dim);"><span data-i18n="purge_margin">Purge margin</span></span>
-              <input type="number" id="safetyMargin" value="20" min="0" max="50" step="1" style="width:60px; background:var(--bg); color:var(--text); border:1px solid var(--line-2); padding:4px;" />
+              <label for="safetyMargin" style="font-size:11px; color:var(--text-dim);" data-i18n="warning_margin">Warning margin</label>
+              <input type="number" id="safetyMargin" value="0" min="0" max="50" step="any" data-i18n-title="warning_margin_help" title="For ordinary moves, this distance extends the yellow warning range in X, Y and upper Z." style="width:60px; background:var(--bg); color:var(--text); border:1px solid var(--line-2); padding:4px;" />
               <span style="font-size:11px; color:var(--text-dim);">mm</span>
               <button class="btn-secondary" id="safetyRecheck" style="padding:4px 10px; font-size:11px;" data-i18n="safety_recheck" data-busy-i18n="checking">Re-validate</button>
             </div>
@@ -151,16 +151,20 @@ SOFTWARE. -->
             <div>Move Commands: <span class="v" id="sMoves">—</span></div>
             <div>Actual BBox: <span class="v" id="sBbox" style="font-size:11px;">—</span></div>
             <div>Printable Area: <span class="v" id="sPrintable" style="font-size:11px;">—</span></div>
-            <div><span data-i18n="safety_physical">Envelope of checked paths</span> <span class="v" id="sPhysical" style="font-size:11px;">—</span></div>
+            <div><span data-i18n="warning_bounds">Ordinary move warning range</span> <span class="v" id="sPhysical" style="font-size:11px;">—</span></div>
           </div>
-          <div style="display:flex; gap:8px; margin-top:8px;">
-            <div style="flex:1; padding:8px; background:rgba(255,165,0,0.06); border-left:3px solid #f5a623;">
-              ⚠️ Out of Area: <strong id="sSoftCount">0</strong>
-              <button class="btn-secondary" id="sSoftDetailBtn" style="padding:2px 8px; margin-left:6px; font-size:11px;" disabled><span data-i18n="safety_details">Details</span></button>
+          <div class="safety-groups">
+            <div data-safety-group="expected">
+              <span data-i18n="safety_expected">Expected out-of-area moves</span> <strong id="sExpectedCount">0</strong>
+              <button class="btn-secondary" id="sExpectedDetailBtn" disabled><span data-i18n="safety_details">Details</span></button>
             </div>
-            <div style="flex:1; padding:8px; background:rgba(255,80,80,0.06); border-left:3px solid #e74c3c;">
-              ⛔ Collision Risk: <strong id="sHardCount">0</strong>
-              <button class="btn-secondary" id="sHardDetailBtn" style="padding:2px 8px; margin-left:6px; font-size:11px;" disabled>Details</button>
+            <div data-safety-group="soft">
+              <span data-i18n="safety_soft">Out of Area</span> <strong id="sSoftCount">0</strong>
+              <button class="btn-secondary" id="sSoftDetailBtn" disabled><span data-i18n="safety_details">Details</span></button>
+            </div>
+            <div data-safety-group="hard">
+              <span data-i18n="safety_hard">Collision Risk</span> <strong id="sHardCount">0</strong>
+              <button class="btn-secondary" id="sHardDetailBtn" disabled><span data-i18n="safety_details">Details</span></button>
             </div>
           </div>
           <div class="field-hint" id="sHeader" style="margin-top:6px;"></div>
@@ -552,9 +556,10 @@ SOFTWARE. -->
   </div>
 </aside>
 
-<footer class="privacy-footer" aria-labelledby="privacyHeading">
+<footer class="privacy-footer">
   <h2 id="privacyHeading" data-i18n="privacy_heading">Privacy policy</h2>
   <p data-i18n="privacy_files">The G-code and 3MF files you select, and the files you generate, are processed in your browser. They are never sent to an external server.</p>
+  <p data-i18n="developer_notice">The developer accepts no responsibility for any issues arising from the use of BambuLoop.</p>
 </footer>
 
 <!-- ============================================================ -->

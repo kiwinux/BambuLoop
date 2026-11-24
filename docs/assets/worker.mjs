@@ -7,7 +7,7 @@ let queue = Promise.resolve();
 async function initialize() {
   self.postMessage({ state: "loading" });
   const runtime = await loadPyodide({ indexURL: new URL("../runtime/", import.meta.url).href });
-  const asset = await fetch(new URL("./engine.zip", import.meta.url));
+  const asset = await fetch(new URL("./engine.zip", import.meta.url), {cache: "no-cache"});
   if (!asset.ok) throw new Error("Could not load the BambuLoop engine.");
   runtime.unpackArchive(await asset.arrayBuffer(), "zip", { extractDir: "/engine" });
   runtime.runPython("import sys\nsys.path.insert(0, '/engine')");

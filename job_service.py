@@ -16,7 +16,7 @@ from gcode_processor import (
     generate_sound_catalog_gcode, generate_sound_event, repackage_3mf, sliced_plates,
 )
 from build_plate import ArchiveSurfaces, PlateCheckFormatError, has_plate_check
-from gcode_validator import first_plate, validate_gcode_text
+from gcode_validator import first_plate, parse_warning_margin, validate_gcode_text
 from i18n_helper import t_dict
 
 INPUT_LIMIT = 200 * 1024 * 1024
@@ -36,12 +36,9 @@ def field_error(key, status=400, **values):
 
 def _margin(value):
     try:
-        margin = float(value)
-        if math.isfinite(margin) and margin >= 0:
-            return margin
-    except (TypeError, ValueError, OverflowError):
-        pass
-    raise field_error("error.invalid_purge_margin")
+        return parse_warning_margin(value)
+    except ValueError:
+        raise field_error("error.invalid_warning_margin") from None
 
 
 def _clearance_error(error):
@@ -148,7 +145,7 @@ def _plate_check_result(text, requested):
 def _report(text, name, margin):
     try:
         report = validate_gcode_text(text, margin=margin, source_name=name)
-        for kind in ("soft_violations", "hard_violations"):
+        for kind in ("expected_moves", "soft_violations", "hard_violations"):
             report[kind] = report[kind][:20]
         return report
     except (ValueError, ArithmeticError) as error:
@@ -323,7 +320,7 @@ class JobFiles:
         return parser, archive_name, number
 
     def generate(self, data):
-        margin = _margin(data.get("safety_margin_mm", 20))
+        margin = _margin(data.get("safety_margin_mm", 0))
         requested = data.get("jobs") or []
         if not requested:
             raise field_error("error.no_jobs")
@@ -385,7 +382,7 @@ class JobFiles:
         return result
 
     def dry_run(self, data):
-        margin = _margin(data.get("safety_margin_mm", 20))
+        margin = _margin(data.get("safety_margin_mm", 0))
         settings = parse_settings(data.get("settings") or {})
         phases = data.get("phases") or {}
         opts = {key: bool(phases.get(key, default)) for key, default in (
@@ -420,7 +417,7 @@ class JobFiles:
         return result
 
     def validate(self, data):
-        margin = _margin(data.get("margin_mm", 20))
+        margin = _margin(data.get("margin_mm", 0))
         filename = data.get("filename")
         text, source = data.get("gcode_text"), "(in-memory)"
         if filename:

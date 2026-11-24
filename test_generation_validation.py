@@ -147,34 +147,54 @@ class ValidationTests(unittest.TestCase):
     def test_purge_geometry_and_section(self):
         for path in (PRIME, EXIT):
             with self.subTest(path=path[:30]):
-                self.assertEqual(validate_gcode_text(START + path)["verdict"], "soft_only")
-                self.assertEqual(validate_gcode_text(START + path, 0)["verdict"], "unsafe")
-                self.assertEqual(validate_gcode_text(START + "; CHANGE_LAYER\n" + path)["verdict"], "unsafe")
+                self.assertEqual(validate_gcode_text(START + path)["verdict"], "expected_only")
+                self.assertEqual(validate_gcode_text(START + path, 0)["verdict"], "expected_only")
+                placed_in_model = validate_gcode_text(START + "; CHANGE_LAYER\n" + path)
+                self.assertEqual(placed_in_model["expected_count"], 0)
+                self.assertEqual(placed_in_model["verdict"], "soft_only" if path == PRIME else "unsafe")
         self.assertEqual(validate_gcode_text(START + PRIME.replace("X290 E20", "X310 E20"))["verdict"], "unsafe")
         self.assertEqual(validate_gcode_text(START + "; purge\nG1 Y-1")["verdict"], "unsafe")
         self.assertEqual(validate_gcode_text(START + "G1 X345\nG1 Z-1")["hard_count"], 2)
 
+    def test_expected_paths_and_duplicate_exit_are_independent_of_warning_margin(self):
+        job = START + EXIT + PRIME + "; CHANGE_LAYER\nG1 Y20\nG1 Y-0.5\nG1 Y-60"
+        duplicate = START + EXIT + "G91\nG1 Y-16 F12000\nG90"
+        for margin in (0, 0.25, 1, 10, 16, 20, 50):
+            with self.subTest(margin=margin):
+                r = validate_gcode_text(job, margin)
+                self.assertEqual((r["expected_count"], r["soft_count"], r["hard_count"]), (1, 1, 1))
+                self.assertEqual(r["physical"]["y_min"], -16)
+                self.assertEqual(r["soft_violations"][0]["command"], "G1 Y-0.5")
+                self.assertEqual(r["hard_violations"][0]["command"], "G1 Y-60")
+                d = validate_gcode_text(duplicate, margin)
+                self.assertEqual(d["hard_count"], 1)
+                self.assertIn("2 ×", d["hard_violations"][0]["axes"][-1])
+        for altered in (PRIME.replace("G1 X250 F60000", "G1 X250 F60000Y-1"),
+                        PRIME.replace("G1 E5 F240", "G1 E5Y-1 F240")):
+            self.assertEqual(validate_gcode_text(START + altered, 0)["verdict"], "unsafe")
+
     def test_purge_exit_with_stationary_commands(self):
         routine = "G150.1\nG91\nM400\nG01 Y-16.0 F12000\nG92 E0\nM400\nG90"
-        self.assertEqual(validate_gcode_text(START + routine)["verdict"], "soft_only")
-        self.assertEqual(validate_gcode_text(START + routine, 0)["verdict"], "unsafe")
+        self.assertEqual(validate_gcode_text(START + routine)["verdict"], "expected_only")
+        self.assertEqual(validate_gcode_text(START + routine, 0)["verdict"], "expected_only")
 
     def test_pre_extrusion_calibration_only_at_first_start(self):
         approach = "G1 X270 Y-0.5 F60000"
         block = ("G390.1 Z\nG90\nM73 P0 R286\nG1 Z5 F1200\n" + approach + "\nG28.140 S0\n"
                  "M141 S0\nM104 S245\nM1002 gcode_claim_action : 3\nG90\nG1 Z5 F1200\nG1 X187 Y160 F20000\n")
-        self.assertEqual(validate_gcode_text(START + block)["verdict"], "soft_only")
-        for suffix in ("; CHANGE_LAYER\n" + block, block + block,
+        self.assertEqual(validate_gcode_text(START + block)["verdict"], "expected_only")
+        self.assertEqual(validate_gcode_text(START + "; CHANGE_LAYER\n" + block)["verdict"], "soft_only")
+        for suffix in (block + block,
                        block.replace("G28.140 S0", "G28.14 R0"), block.replace("X270", "X260"),
                        block.replace("G390.1 Z", "G28"), block.replace("G1 X187", "G1 X180"),
                        "G390.1 Z\nG1 X20\n" + block, block.split("M141")[0]):
             with self.subTest(suffix=suffix):
                 self.assertGreater(validate_gcode_text(START + suffix)["hard_count"], 0)
-        self.assertEqual(validate_gcode_text(START + block, 0)["verdict"], "unsafe")
+        self.assertEqual(validate_gcode_text(START + block, 0)["verdict"], "expected_only")
 
     def test_bin_to_load_lift_requires_one_uninterrupted_exit(self):
         lift = "G1 Z5 F1200"
-        self.assertEqual(validate_gcode_text(START + EXIT + "M400\n" + PRIME)["verdict"], "soft_only")
+        self.assertEqual(validate_gcode_text(START + EXIT + "M400\n" + PRIME)["verdict"], "expected_only")
         for prefix in (EXIT + "G150.3\n", EXIT + "G91\nG90\n", "G1 Y-16\n",
                        "G1 Y1\n" + EXIT, EXIT + "G91\nG1 Y-16 F12000\nG90\n"):
             with self.subTest(prefix=prefix):
@@ -182,27 +202,90 @@ class ValidationTests(unittest.TestCase):
                 self.assertEqual(r["verdict"], "unsafe")
         altered = PRIME.replace(lift, "G1 Z4 F1200")
         self.assertEqual(validate_gcode_text(START + EXIT + altered)["verdict"], "unsafe")
-        self.assertEqual(validate_gcode_text(START + EXIT + PRIME, 0)["verdict"], "unsafe")
+        self.assertEqual(validate_gcode_text(START + EXIT + PRIME, 0)["verdict"], "expected_only")
 
     def test_load_to_first_layer_allows_only_the_expected_z_move(self):
         layer = "; CHANGE_LAYER\n; layer num/total_layer_count: 1/81\nM73 L82\nM106 S0\n"
         entry = "G1 Z.4 F60000"
         def check(tail, margin=20):
             return validate_gcode_text(START + PRIME + tail, margin)
-        self.assertEqual(check(layer + entry)["verdict"], "soft_only")
-        self.assertEqual(check(layer + entry, 0)["verdict"], "unsafe")
-        for tail in (entry, layer.replace("1/81", "2/81") + entry, layer + entry + "\n" + entry,
+        for move in (entry, "G1 Z.4 F30000", "g1 z0.400 f27500.5 ; profile travel speed"):
+            with self.subTest(move=move):
+                r = check(layer + move)
+                self.assertEqual((r["verdict"], r["soft_count"], r["hard_count"]), ("expected_only", 0, 0))
+                self.assertEqual(check(layer + move, 0)["verdict"], "expected_only")
+        for move in ("G1 Z.4 F0", "G1 Z.4 F-1", "G1 Z.4 F30000Y-2", "G1 Z.4 F30000 E1",
+                     "G1 Z.4 F30000 Y-0.5", "G1 Z.4 F30.0.0", "G1 Z.4 F" + "9" * 310):
+            with self.subTest(move=move):
+                self.assertEqual(check(layer + move)["verdict"], "soft_only")
+        self.assertEqual(check(layer + "G1 Z.4 F30000\nG1 X30 Y20\nG1 Y-0.5")["soft_count"], 1)
+        self.assertEqual(check(entry)["verdict"], "unsafe")  # unexpected move during startup
+        for tail in (layer.replace("1/81", "2/81") + entry, layer + entry + "\n" + entry,
                      layer + "G1 Z.5 F60000", layer + "G1 X290 Z.4 F60000", "G91\n" + layer + entry,
                      "G150.1\n" + layer + entry, layer + "G1 E1 F1200\n" + entry,
                      layer + entry + "\nG1 X30 Y20\nG1 Y-0.5"):
             with self.subTest(tail=tail):
-                self.assertEqual(check(tail)["verdict"], "unsafe")
+                self.assertEqual(check(tail)["verdict"], "soft_only")
         self.assertIn("Z=-1.000 < 0.0", check(layer + "G1 Z-1")["hard_violations"][0]["axes"])
+
+    def test_expected_warning_and_risk_have_separate_counters_and_details(self):
+        text = START + PRIME + "; CHANGE_LAYER\nG1 Y30\nG1 Y-0.5\nG1 Y-0.6\nG1 Y-17\nG1 Y-0.4"
+        r = validate_gcode_text(text)
+        self.assertEqual((r["expected_count"], r["soft_count"], r["hard_count"]), (1, 2, 1))
+        self.assertEqual(r["expected_moves"][0]["note"], "H2S nozzle load line")
+        self.assertEqual([v["command"] for v in r["soft_violations"]], ["G1 Y-0.5", "G1 Y-0.4"])
+        self.assertEqual(r["hard_violations"][0]["command"], "G1 Y-17")
+        capped = validate_gcode_text(text, max_violations=0)
+        for count, details in (("expected_count", "expected_moves"), ("soft_count", "soft_violations"),
+                               ("hard_count", "hard_violations")):
+            self.assertEqual(capped[count], r[count])
+            self.assertEqual(capped[details], [])
+
+    def test_one_severity_per_move_with_default_warning_margin(self):
+        body = START + "; CHANGE_LAYER\n"
+        for move, verdict in (("G1 Y-5", "soft_only"), ("G1 Y335", "soft_only"),
+                              ("G1 Y-5.01", "unsafe"), ("G1 Y335.01", "unsafe"),
+                              ("G1 X341 Y-0.5", "unsafe"), ("G1 Y-0.5 Z-0.1", "unsafe")):
+            with self.subTest(move=move):
+                r = validate_gcode_text(body + move)
+                self.assertEqual(r["verdict"], verdict)
+                self.assertEqual(r["expected_count"] + r["soft_count"] + r["hard_count"], 1)
+        narrow = "; printable_area = 0x0,200x0,200x190,0x190\n; printable_height = 100\n"
+        self.assertEqual(validate_gcode_text(narrow + body + "G1 X201")["verdict"], "soft_only")
+        self.assertEqual(validate_gcode_text(narrow + body + "G1 Z341")["verdict"], "unsafe")
+
+    def test_warning_margin_boundary_and_exclusions(self):
+        body = START + "; CHANGE_LAYER\n"
+        for move in ("G1 X342", "G1 X-2", "G1 Y-7", "G1 Y337", "G1 Z342"):
+            with self.subTest(move=move):
+                for margin, verdict in [(0, "unsafe"), (1.99, "unsafe"), (2, "soft_only")]:
+                    r = validate_gcode_text(body + move, margin)
+                    self.assertEqual(r["verdict"], verdict)
+                    self.assertEqual(r["expected_count"], 0)
+        for text in (body + "G1 Z-0.1", body + "G1 X342 Z-0.1", START + "G1 X342",
+                     START + "G1 Y-17", START + EXIT + "G91\nG1 Y-16 F12000\nG90"):
+            self.assertEqual(validate_gcode_text(text, 50)["verdict"], "unsafe")
+        r = validate_gcode_text(body + "G1 X342", 2)
+        self.assertEqual(r["warning_bounds"], dict(x_min=-2, x_max=342, y_min=-7, y_max=337, z_min=0, z_max=342))
+        for margin in (-1, 50.01, float("nan"), float("inf")):
+            with self.assertRaises(ValueError):
+                validate_gcode_text(body, margin)
+
+    def test_source_and_generated_machine_end_use_service_limits(self):
+        for marker in ("; MACHINE_END_GCODE_START", "; [SHUTDOWN]", "; machine_end_gcode", "; filament end gcode"):
+            with self.subTest(marker=marker):
+                text = START + "; CHANGE_LAYER\nG1 Y-0.5\n" + marker + "\nG1 Y-0.5"
+                r = validate_gcode_text(text)
+                self.assertEqual((r["expected_count"], r["soft_count"], r["hard_count"]), (0, 1, 1))
+
+    def test_in_model_filament_change_keeps_ordinary_warning_range(self):
+        job = START + "; CHANGE_LAYER\n; filament end gcode\n; filament start gcode\nG1 X342"
+        self.assertEqual(validate_gcode_text(job, 2)["verdict"], "soft_only")
 
     def test_warning_escalates_and_rearms(self):
         text = START + EXIT + "G1 Y-17\nG1 Y-18\nG1 Y10\nG1 Y-17"
         r = validate_gcode_text(text)
-        self.assertEqual((r["soft_count"], r["hard_count"], r["verdict"]), (1, 2, "unsafe"))
+        self.assertEqual((r["expected_count"], r["hard_count"], r["verdict"]), (1, 2, "unsafe"))
         capped = validate_gcode_text(text, max_violations=0)
         self.assertEqual(capped["hard_count"], 2)
         self.assertEqual(capped["hard_violations"], [])
@@ -215,8 +298,8 @@ class ValidationTests(unittest.TestCase):
                 text = build_dry_run_gcode(settings, 10, include_reset=False)
                 r = validate_gcode_text(text, 0)
                 self.assertEqual(r["hard_count"], 0)
-                self.assertGreater(r["soft_count"], 0)
-                self.assertTrue(all("eject sweep" in v["note"] for v in r["soft_violations"]))
+                self.assertGreater(r["expected_count"], 0)
+                self.assertTrue(all("eject sweep" in v["note"] for v in r["expected_moves"]))
                 tampered = text.replace("G1 Y335 F9000", "G1 Y334 F9000", 1)
                 self.assertEqual(validate_gcode_text(tampered)["verdict"], "unsafe")
 
@@ -253,7 +336,7 @@ G1 Y335 F9000
 G1 Z20.0 F1200
 G1 X170 F9000
 G1 Y160 F9000"""
-        self.assertEqual(validate_gcode_text(text, 0)["verdict"], "soft_only")
+        self.assertEqual(validate_gcode_text(text, 0)["verdict"], "expected_only")
         changed = text.replace("G1 X170 F9000", "G1 X160 F9000", 1)
         self.assertEqual(validate_gcode_text(changed)["verdict"], "unsafe")
         self.assertEqual(validate_gcode_text(text.replace("Z_HEIGHT: 10", "Z_HEIGHT: 50"))["verdict"], "unsafe")
@@ -267,18 +350,54 @@ G1 Y160 F9000"""
         self.assertEqual(validate_gcode_text(START + "G20\nG1 X16")["verdict"], "unsafe")
         self.assertEqual(validate_gcode_text(START + ";CHANGE_LAYER\n" + EXIT)["verdict"], "unsafe")
 
+    def test_first_homing_checks_xy_before_z_is_homed(self):
+        homing = """;===== machine: H2S =====
+;===== first homing start =====
+G28 X T300
+M1009 Q1 L1
+G91
+G380 S2 Z30 F1200
+G90
+G1 X170 Y160 F30000
+G28 Z P0 T250
+M1009 Q1 L0
+;===== first homing end ====="""
+        report = validate_gcode_text(homing)
+        self.assertEqual((report["verdict"], report["total_moves"], report["skipped_moves"]), ("safe", 1, 0))
+        self.assertEqual(report["verdict_label"]["ko"], "✅ 모든 GCODE 이동이 정상 범위입니다")
+        self.assertIsNone(report["bbox_min"])  # Never manufacture a Z for the XY move.
+        narrow = "; printable_area = 0x0,100x0,100x100,0x100\n; printable_height = 100\n"
+        self.assertEqual(validate_gcode_text(narrow + homing)["hard_count"], 1)
+        for altered in (homing.replace("G28 Z P0 T250", "M400"), homing.replace("X170", "X169"),
+                        homing.replace("G28 X T300", "G28 Y T300"), homing.replace("G90", "G91"),
+                        homing.replace("M1009 Q1 L1", "G92 Y0\nM1009 Q1 L1"),
+                        homing.replace("G28 X T300", "G28 X T300\nM84 X"),
+                        homing.replace(";===== first homing start", "; CHANGE_LAYER\n;===== first homing start")):
+            with self.subTest(altered=altered):
+                r = validate_gcode_text(altered)
+                self.assertEqual((r["verdict"], r["skipped_moves"]), ("unverified", 1))
+
+    def test_success_label_requires_checked_moves(self):
+        passed = validate_gcode_text(START + EXIT)
+        self.assertEqual((passed["verdict"], passed["verdict_label"]["ko"]),
+                         ("expected_only", "✅ 모든 GCODE 이동이 정상 범위입니다"))
+        for source, label in (("M400", "검사할 이동이 없습니다"),
+                              ("G28 X\nG91\nG1 Y5", "일부 이동의 좌표를 확인할 수 없습니다")):
+            r = validate_gcode_text(source)
+            self.assertEqual((r["verdict"], r["verdict_label"]["ko"]), ("unverified", label))
+
     def test_partial_home_and_arcs(self):
         incomplete = validate_gcode_text("G28 X\nG91\nG1 Y5")
         self.assertEqual((incomplete["verdict"], incomplete["skipped_moves"]), ("unverified", 1))
         self.assertEqual(validate_gcode_text(START + "G1 X10 Y0.5 Z1\nG3 X14 Y0.5 R2")["verdict"], "unsafe")
         invalid = validate_gcode_text(START + EXIT + "G1 X20 Y20\nG2 X40 Y20 R1")
         self.assertEqual(invalid["verdict"], "unverified")
-        self.assertEqual((invalid["soft_count"], invalid["skipped_moves"]), (1, 1))
+        self.assertEqual((invalid["expected_count"], invalid["skipped_moves"]), (1, 1))
 
     def test_duplicate_retreat_is_an_unrecognised_move(self):
         text = START + EXIT + "G91\nG1 Y-16 F12000\nG90\n"
         r = validate_gcode_text(text)
-        self.assertEqual((r["soft_count"], r["hard_count"]), (1, 1))
+        self.assertEqual((r["expected_count"], r["hard_count"]), (1, 1))
         self.assertEqual(r["hard_violations"][0]["point"][1], -32)
 
     def test_duplicate_retreat_even_with_an_on_bed_estimated_position(self):
@@ -300,7 +419,8 @@ G1 Y160 F9000"""
             for margin in (0, 20):
                 cli = run(path, margin, 20)
                 api = validate_gcode_text(START + EXIT, margin)
-                self.assertEqual((cli.soft_count, cli.hard_count), (api["soft_count"], api["hard_count"]))
+                self.assertEqual((cli.expected_count, cli.soft_count, cli.hard_count),
+                                 (api["expected_count"], api["soft_count"], api["hard_count"]))
 
 
 class RouteTests(unittest.TestCase):
@@ -336,10 +456,10 @@ class RouteTests(unittest.TestCase):
                     archive.writestr("Metadata/plate_2.gcode", START + EXIT)
                 check = client.post("/api/validate", json={"filename": "multiple.3mf", "margin_mm": 0})
                 self.assertEqual(check.json["source"], "multiple.3mf!Metadata/plate_2.gcode")
-                self.assertEqual(check.json["verdict"], "unsafe")
-                for margin, expected in ((0, "unsafe"), (20, "soft_only")):
+                self.assertEqual(check.json["verdict"], "expected_only")
+                for margin in (0, 1, 20):
                     result = client.post("/api/validate",json={"filename":"purge.gcode","margin_mm":margin})
-                    self.assertEqual((result.json["margin_mm"], result.json["verdict"]), (margin, expected))
+                    self.assertEqual((result.json["margin_mm"], result.json["verdict"]), (margin, "expected_only"))
 
 
 if __name__ == "__main__":

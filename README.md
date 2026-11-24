@@ -3,7 +3,7 @@
 
 ## BambuLoop is now supported in web version ([https://kiwinux.github.io/BambuLoop/](https://kiwinux.github.io/BambuLoop/))
 
-![Screenshot Image](https://raw.githubusercontent.com/kiwinux/BambuLoop/refs/heads/main/images/screen.png)
+![Screenshot Image](./images/screen.png)
 
 <details>
 <summary>Click here to show real printing demo GIF</summary>
@@ -62,11 +62,7 @@ BambuLoop opens sliced files, generates G-code and validates downloads in a Web 
 
 For a local preview, run `node tools/preview.mjs` from the repository and open [BambuLoop on localhost](http://127.0.0.1:4173/BambuLoop/). Any static HTTP(S) server can serve `docs/`. Its runtime, engine and presets must remain in their supplied subdirectories. The tab uses a 200 MiB budget for stored inputs (including extracted plates), an expanded archive and the estimated combined G-code. If only the expanded output 3MF exceeds the budget, the combined G-code is offered for download. Available device memory also affects large jobs.
 
-The optional local HTTP API uses Python 3.10+. Install `requirements.txt` and run `python app.py` to serve the same UI and the existing `/api/` endpoints on loopback port 5000.
-
-### Publish on GitHub Pages
-
-On a push to `main`, the **Deploy BambuLoop to GitHub Pages** workflow rebuilds the shared engine bundle and publishes only `docs/`.
+The existing local HTTP API runs on Python 3.10 or later. Install the dependencies listed in `requirements.txt`, then run `python app.py` to access the same interface and the `/api/` endpoints at `127.0.0.1:5000`. Development is focused on running all processing in the user's web browser. We plan to remove the local HTTP API in a future release.
 
 ## Quick start
 
@@ -102,6 +98,22 @@ The validation panel reports the checked moves and any out-of-path motion.
 Click **Generate**. Download the resulting `.gcode.3mf` (or `.gcode`).
 
 The browser saves a file. You can inspect the downloaded result in Bambu Studio.
+
+---
+
+## G-code motion validation
+
+BambuLoop checks the generated G-code in your browser. Open **Details** next to a count to see the line number, affected axis, command and operation.
+
+- **Gray — Expected out-of-area moves.** The command sequence and coordinates match a recognised H2S operation such as nozzle priming, a single 16 mm retreat after wiping, or an eject sweep.
+- **Yellow — Out of Area.** An ordinary print move leaves the source printable area but stays within the warning range.
+- **Red — Collision Risk.** A move exceeds the warning range, goes below Z=0, or leaves the permitted path for a service operation.
+
+The **Warning margin** defaults to **0 mm**. It extends the H2S software reference range (X and Z 0–340 mm, Y −5 to 335 mm) on both sides of X and Y and above the Z maximum. For example, an ordinary move to X=342 mm is red at 0 mm and yellow at 2 mm. Select **Re-validate** to update the report for the same file.
+
+![Motion validation details showing G-code line numbers, Y coordinates, commands and notes](./images/validation_en.jpg)
+
+*The screenshot above demonstrates collision risk detection. For this test, the calibration approach, the move to the nozzle priming line, and the retreat from the purge bin were classified as collision risks and shown in red. The current version recognises all three as normal operations and displays them in gray under “Expected out-of-area moves”.*
 
 ---
 
@@ -143,7 +155,6 @@ Settings you'll commonly tweak:
   configuration.
 - **Check the source build plate on the first print** is enabled by default. The first job’s selected 3MF plate supplies the build surface and its sliced startup check. An existing check is kept once at startup. Clearing the box omits it from combined and dry-run files. A source without a check adds none. The printer’s own detection flag still applies.
 - The generator and dry-run use the same eject clearance check. Bottom-fixed sweeps require a print under **42 mm**. For stepped sweeps the drop per step must be at most 42 mm. Files with no usable print height can still be combined with ejection disabled.
-- The default **20 mm purge margin** applies only to recognised H2S nozzle priming and purge-bin exit paths. Enter 0 to check those paths against the bed edge. Ordinary print moves use the printable area. Eject sweeps are checked separately against the generated path and the project's reference Y range of −5 to 335 mm. These bounds describe the software checks.
 - Layer numbers continue across models and copies. Rechecking a generated 3MF follows the first job’s source plate number and displays the inspected entry.
 - Don't leave the printer unattended during your first repeat-print
   session. Watch at least one full cycle before stepping away.

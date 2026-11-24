@@ -4,6 +4,10 @@ Thanks for your interest! BambuLoop is open source under the MIT license, and
 contributions of any size are welcome — bug reports, feature requests, code,
 translations, documentation.
 
+BambuLoop processes files in a Web Worker using the bundled Python engine.
+Build new features to work in the browser and keep files in the tab. We plan
+to remove the local HTTP API in a future release.
+
 ## Reporting bugs
 
 Open a GitHub issue with:
@@ -11,7 +15,10 @@ Open a GitHub issue with:
 - What you tried to do
 - What happened (full error message or G-code excerpt is best)
 - Your slicer version (Bambu Studio version), filament, and nozzle settings
-- The generated G-code if relevant (a Pastebin link is fine — they get large)
+- Your browser and version if the issue occurs in the web app
+- For a motion warning, the warning margin and the relevant rows from **Details**
+  (line number, axis and G-code command). Share a small excerpt or a sample you
+  can make public if it helps reproduce the issue.
 
 ## Suggesting features
 
@@ -21,10 +28,16 @@ the proposed solution second.
 ## Code contributions
 
 1. Fork the repo and create a feature branch (`git checkout -b feat/my-change`).
-2. Make your changes.
-3. Run `python -m unittest discover` and `python test_smoke.py`. After changing the Python engine or translations, refresh the checked-in Pages assets with `python tools/build_pages.py`. Check them with `python tools/build_pages.py --check`. Browser users only need the resulting static files.
-4. If you change G-code generation, also test the **dry-run** mode in the web
-   UI on at least one real `.gcode` file from Bambu Studio.
+2. Preview the browser app with `node tools/preview.mjs` and open
+   [BambuLoop on localhost](http://127.0.0.1:4173/BambuLoop/).
+3. For the native tests, install the development dependencies with
+   `python -m pip install -r requirements.txt`. Run `python -m unittest discover`
+   and `python test_smoke.py`. After changing engine code or its translations,
+   refresh the Pages assets with `python tools/build_pages.py` and include them
+   in your PR. Check them with `python tools/build_pages.py --check`.
+4. For browser or engine changes, run `node tests/pages_smoke.mjs` (see
+   **Static site tests** below). For generator changes, use **Generate dry-run**
+   with a sliced Bambu Studio file and inspect the downloaded G-code.
 5. Open a pull request describing the change.
 
 ### Code style
@@ -34,8 +47,8 @@ the proposed solution second.
   i18n `desc.ko`, etc.), never code-level comments.
 - Follow the existing style — type hints, descriptive comments around safety
   logic, no overly clever one-liners.
-- Avoid introducing new dependencies unless they meaningfully simplify
-  something. Stick to the standard library + Flask where possible.
+- Prefer the Python standard library for shared engine code. Keep Flask
+  imports in the local HTTP API so the browser worker can load the engine.
 
 ### Safety-related changes
 
@@ -43,10 +56,13 @@ Anything that touches the eject sequence, Z-collision check, or M73 progress
 logic deserves extra care:
 
 - Add a comment explaining the safety invariant your change preserves.
-- If the change could affect physical motion, run a real dry-run with the
-  Bambu Studio dry-run feature on H2S before submitting.
-- Update the corresponding section of `README.md` if the user-visible behaviour
-  changes.
+- For motion validator changes, test an expected H2S path and an unexpected
+  move. Include the warning margin and the expected classification for each.
+- If a change could affect physical motion, include the results of a supervised
+  dry-run on an empty bed on the target printer before submitting. For a new
+  printer model, document its head travel limits and model-specific G-code.
+- Update the corresponding sections of `README.md` and `README.ko.md` when
+  user-visible behaviour changes.
 
 ## Translations (i18n)
 
@@ -59,22 +75,20 @@ Adding a new language is one of the easiest contributions and very welcome.
    ```bash
    python -c "
    import json, pathlib
-   en = json.loads(pathlib.Path('i18n/en.json').read_text())
-   mine = json.loads(pathlib.Path('i18n/<lang>.json').read_text())
+   en = json.loads(pathlib.Path('i18n/en.json').read_text(encoding='utf-8'))
+   mine = json.loads(pathlib.Path('i18n/<lang>.json').read_text(encoding='utf-8'))
    missing = set(en) - set(mine)
    extra = set(mine) - set(en)
    print('Missing:', missing or 'none')
    print('Extra:', extra or 'none')
    "
    ```
-4. Open a PR with just the new file. We'll wire up the frontend language
-   toggle in a follow-up.
+4. Run `python tools/build_pages.py` and include the updated browser bundle
+   with your locale file. A translation-only PR is welcome.
 
-The frontend currently has UI strings hard-coded for `ko` / `en`. Migrating
-those to the same `i18n/` system is on the roadmap; until then, full UI
-translations to a third language require a frontend pass too. Backend strings
-(error messages, validator labels, etc.) will already be picked up
-automatically from your new JSON file.
+The locale JSON files supply engine messages, including validation results
+and errors. To offer a new language in the UI, also add its interface
+strings and language selection in `docs/assets/app.mjs`.
 
 ## Code of conduct
 
