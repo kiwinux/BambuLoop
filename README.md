@@ -187,5 +187,3 @@ just add a single `i18n/<lang>.json` file. See
 
 MIT — see [LICENSE](LICENSE).
 Copyright (c) 2026 [@kiwinux](https://github.com/kiwinux)
-
-This project was built by using Claude Opus

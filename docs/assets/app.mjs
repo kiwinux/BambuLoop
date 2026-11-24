@@ -583,19 +583,11 @@ function showConfirmModal(title, htmlBody, opts) {
   });
 }
 
-// Dismissing the invitation is a local preference independent of job files.
 function initContributionNotice() {
   const notice = document.getElementById('contributionNotice');
-  const preference = 'bambuloop_contribution_dismissed';
-  try {
-    if (localStorage.getItem(preference) === '1') return;
-  } catch {
-    // The notice can still be dismissed for the current page.
-  }
   notice.hidden = false;
   document.getElementById('dismissContribution').addEventListener('click', event => {
     notice.hidden = true;
-    try { localStorage.setItem(preference, '1'); } catch { /* Storage is optional. */ }
     if (event.detail === 0) document.getElementById('projectLink').focus({preventScroll:true});
   });
 }

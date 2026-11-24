@@ -172,5 +172,3 @@ Dry-Run 테스트를 통해 실제 인쇄 없이 자동화 시퀀스
 
 MIT — [LICENSE](LICENSE) 참고.
 Copyright (c) 2026 [@kiwinux](https://github.com/kiwinux) 
-
-이 프로젝트는 Claude Opus 4.7 인공지능 모델을 통해 만들어졌습니다.

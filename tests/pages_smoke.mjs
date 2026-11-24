@@ -176,8 +176,10 @@ try {
   await checkLocale("en");
   const links = await evaluate("(()=>{const project=document.getElementById('projectLink'),box=document.getElementById('contributionNotice'), rect=box.getBoundingClientRect();return {repo:project.href,icon:!!project.querySelector('svg path'),roadmap:document.getElementById('roadmapLink').href,guide:box.querySelector('[data-i18n=contribution_guide]').href,shown:!box.hidden,title:document.getElementById('contributionHeading').textContent,nearCorner:rect.left<50 && rect.top>=0 && rect.bottom<=innerHeight && innerHeight-rect.bottom<50}})()");
   assert.deepEqual(links,{repo:"https://github.com/kiwinux/BambuLoop",icon:true,roadmap:"https://github.com/kiwinux/BambuLoop#roadmap--contributing",guide:"https://github.com/kiwinux/BambuLoop/blob/main/CONTRIBUTING.md",shown:true,title:"Contribute to BambuLoop",nearCorner:true});
-  await evaluate("localStorage.setItem('bambuloop_lang','unknown')");
+  await evaluate("localStorage.setItem('bambuloop_lang','unknown'); localStorage.setItem('bambuloop_contribution_dismissed','1')");
   await revisit("en");
+  assert.equal(await evaluate("document.getElementById('contributionNotice').hidden"), false);
+  await evaluate("localStorage.removeItem('bambuloop_contribution_dismissed')");
   await evaluate("document.getElementById('langToggle').click()");
   await checkLocale("ko");
   await revisit("ko");
@@ -190,8 +192,10 @@ try {
   assert.ok(await evaluate("document.getElementById('contributionNotice').hidden"));
   await evaluate("document.getElementById('langToggle').click()");
   await checkLocale("en");
+  assert.equal(await evaluate("document.getElementById('contributionNotice').hidden"), true);
+  assert.equal(await evaluate("localStorage.getItem('bambuloop_contribution_dismissed')"), null);
   await revisit("en");
-  assert.ok(await evaluate("document.getElementById('contributionNotice').hidden"));
+  assert.equal(await evaluate("document.getElementById('contributionNotice').hidden"), false);
   await evaluate("document.getElementById('langToggle').click()");
   await checkLocale("ko");
   const controls=await evaluate(`(() => {
