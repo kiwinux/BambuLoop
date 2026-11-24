@@ -166,8 +166,7 @@ the language button at the top of the page.
 
 Features planned for future versions:
 
-- **Support for other Bambu printers** (X1C, P1S, A1) — requires checking
-  the available head travel range
+- **Support for other Bambu printers** (H2D·H2C·H3C·X1C·P1S·A1) — requires checking the available head travel range and printer-specific G-code commands
 - **Additional UI languages** (Chinese, etc.)
 - **Per-model AMS filament override** — currently the first model's AMS
   setting applies to every model

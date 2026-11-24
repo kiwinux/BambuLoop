@@ -5,6 +5,20 @@ import { requestJob, resetWorker } from "./client.mjs";
 // ============================================================
 const I18N = {
   ko: {
+    github_project: 'GitHub에서 BambuLoop 열기',
+    contribute_heading: 'BambuLoop 개발에 참여하세요',
+    contribute_message: '현재 H2S를 지원합니다. UI 번역이나 지원 예정 모델인 H2D·H2C·H3C·X1C·P1S·A1 추가에 함께해 주세요.',
+    view_roadmap: '로드맵 보기',
+    contribution_guide: '기여 안내 (영문)',
+    dismiss_notice: '이 안내 닫기',
+    job_count: '작업 수',
+    total_prints: '총 인쇄',
+    estimated_size: '예상 크기',
+    generate_dry: '▶ 생성',
+    generating: '생성 중…',
+    checking: '검사 중…',
+    page_title: 'BambuLoop — Bambu Lab H2S 자동 반복 인쇄',
+    sound_preview_title: '브라우저에서 미리듣기',
     privacy_heading: '개인정보 처리방침',
     privacy_files: '선택한 G-code·3MF 파일과 생성된 결과 파일은 브라우저 안에서만 처리되며 외부 서버로 전송되지 않습니다.',
     panel_upload: '파일',
@@ -81,6 +95,20 @@ const I18N = {
     parking_z_clearance_hint: '큰 인쇄물에 자동 여유 추가',
   },
   en: {
+    github_project: 'BambuLoop on GitHub',
+    contribute_heading: 'Contribute to BambuLoop',
+    contribute_message: 'BambuLoop supports the H2S today. Help translate the interface or contribute to planned support for the H2D, H2C, H3C, X1C, P1S, and A1.',
+    view_roadmap: 'View roadmap',
+    contribution_guide: 'Contribution guide',
+    dismiss_notice: 'Dismiss this notice',
+    job_count: 'JOBS',
+    total_prints: 'TOTAL PRINTS',
+    estimated_size: 'EST. SIZE',
+    generate_dry: '▶ Generate',
+    generating: 'Generating…',
+    checking: 'Checking…',
+    page_title: 'BambuLoop — Repeat Printing for Bambu Lab H2S',
+    sound_preview_title: 'Preview in browser',
     privacy_heading: 'Privacy policy',
     privacy_files: 'The G-code and 3MF files you select, and the files you generate, are processed in your browser. They are never sent to an external server.',
     panel_upload: 'Files',
@@ -158,7 +186,12 @@ const I18N = {
   },
 };
 
-let currentLang = localStorage.getItem('bambuloop_lang') === 'en' ? 'en' : 'ko';
+let currentLang = document.documentElement.lang;
+try {
+  if (localStorage.getItem('bambuloop_lang') === 'ko') currentLang = 'ko';
+} catch {
+  // The static English interface also works without preference storage.
+}
 
 function t(key) {
   return (I18N[currentLang] && I18N[currentLang][key]) || I18N['ko'][key] || key;
@@ -307,7 +340,6 @@ const KO_TO_EN = {
   "가비지 캔으로 필라멘트 배출(E45) + G150.1 와이프 — 베드에 잔여물 없음.": "Dump filament to garbage can (E45) + G150.1 wipe — no residue on bed.",
   "값을 바꾸면 즉시 반영됩니다. 헤드 마커는 실제 동작 순서대로 움직입니다.": "Changes apply instantly. Head marker moves in actual operation order.",
   "Z단": "Z",
-  "BambuLoop — Bambu H2S 자동 반복 인쇄": "BambuLoop — Bambu H2S Auto-Repeat Print",
   "mm /\n        노즐": "mm /\n        Nozzle",
   "°C / 베드": "°C / Bed"
 };
@@ -317,13 +349,14 @@ let legacyLabels;
 function translateTextNodes() {
   if (!legacyLabels) {
     legacyLabels = [];
+    const englishToKorean = new Map(Object.entries(KO_TO_EN).map(([ko, en]) => [en, ko]));
     const nodes = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     for (let node = nodes.nextNode(); node; node = nodes.nextNode()) {
       if (node.parentElement?.closest('script, style, [data-i18n]')) continue;
       const original = node.nodeValue;
       const key = original.trim();
-      if (Object.hasOwn(KO_TO_EN, key)) {
-        legacyLabels.push({node, ko: original, en: original.replace(key, () => KO_TO_EN[key])});
+      if (englishToKorean.has(key)) {
+        legacyLabels.push({node, en: original, ko: original.replace(key, () => englishToKorean.get(key))});
       }
     }
   }
@@ -333,16 +366,27 @@ function translateTextNodes() {
 function applyI18n() {
   // Marked data-i18n elements
   document.querySelectorAll('[data-i18n]').forEach(el => {
-    const key = el.dataset.i18n;
+    const key = (el.disabled && el.dataset.busyI18n) || el.dataset.i18n;
     const val = t(key);
     if (val) el.textContent = val;
   });
-  // Traversal-based translation (every unmarked Korean text)
+  document.querySelectorAll('[data-i18n-title]').forEach(el => {
+    el.title = t(el.dataset.i18nTitle);
+  });
+  const cmName = document.getElementById('cmName');
+  cmName.placeholder = currentLang === 'en' ? cmName.dataset.placeholderEn : cmName.dataset.placeholderKo;
   translateTextNodes();
   document.documentElement.lang = currentLang;
   // Update the toggle button label
   const tb = document.getElementById('langToggle');
-  if (tb) tb.textContent = currentLang === 'ko' ? 'EN' : '한국어';
+  if (tb) {
+    tb.lang = currentLang === 'ko' ? 'en' : 'ko';
+    tb.textContent = currentLang === 'ko' ? 'EN' : '한국어';
+  }
+  const roadmap = document.getElementById('roadmapLink');
+  roadmap.href = currentLang === 'ko'
+    ? 'https://github.com/kiwinux/BambuLoop/blob/main/README.ko.md#로드맵--기여'
+    : 'https://github.com/kiwinux/BambuLoop#roadmap--contributing';
 }
 
 // ============================================================
@@ -430,8 +474,11 @@ function bindInfoTips() {
 
 function setLang(lang) {
   currentLang = lang;
-  localStorage.setItem('bambuloop_lang', lang);
-  document.documentElement.lang = lang;
+  try {
+    localStorage.setItem('bambuloop_lang', lang);
+  } catch {
+    // Keep the current tab's selection when the browser blocks storage.
+  }
   applyI18n();
   // Reload dynamic content
   if (typeof loadSoundPresets === 'function') loadSoundPresets();
@@ -449,7 +496,6 @@ function setLang(lang) {
   // cmName placeholder
   const cmName = document.getElementById('cmName');
   if (cmName) {
-    cmName.placeholder = lang === 'en' ? cmName.dataset.placeholderEn : cmName.dataset.placeholderKo;
     // Update the name if it was auto-generated (user did not type one)
     const v = cmName.value.trim();
     if (v.startsWith('내 멜로디 ') || v.startsWith('My Melody ')) {
@@ -537,13 +583,30 @@ function showConfirmModal(title, htmlBody, opts) {
   });
 }
 
+// Dismissing the invitation is a local preference independent of job files.
+function initContributionNotice() {
+  const notice = document.getElementById('contributionNotice');
+  const preference = 'bambuloop_contribution_dismissed';
+  try {
+    if (localStorage.getItem(preference) === '1') return;
+  } catch {
+    // The notice can still be dismissed for the current page.
+  }
+  notice.hidden = false;
+  document.getElementById('dismissContribution').addEventListener('click', event => {
+    notice.hidden = true;
+    try { localStorage.setItem(preference, '1'); } catch { /* Storage is optional. */ }
+    if (event.detail === 0) document.getElementById('projectLink').focus({preventScroll:true});
+  });
+}
+
 // Toggle button handler (once DOM is ready)
 document.addEventListener('DOMContentLoaded', () => {
   const tb = document.getElementById('langToggle');
   if (tb) tb.addEventListener('click', () => setLang(currentLang === 'ko' ? 'en' : 'ko'));
-  document.documentElement.lang = currentLang;
   applyI18n();
   bindInfoTips();
+  initContributionNotice();
 });
 
 // State management
@@ -906,9 +969,8 @@ document.getElementById('drGenerate').addEventListener('click', async () => {
   };
 
   const btn = document.getElementById('drGenerate');
-  const oldText = btn.textContent;
   btn.disabled = true;
-  btn.textContent = '⟳ 생성 중...';
+  btn.textContent = t('generating');
   const revision = clearResult();
 
   try {
@@ -929,7 +991,7 @@ document.getElementById('drGenerate').addEventListener('click', async () => {
     showToast('✗ ' + e.message, 'error');
   } finally {
     btn.disabled = false;
-    btn.textContent = oldText;
+    btn.textContent = t('generate_dry');
   }
 });
 
@@ -1143,7 +1205,7 @@ document.getElementById('soundCatalogBtn').addEventListener('click', async () =>
   const btn = document.getElementById('soundCatalogBtn');
   const mode = document.getElementById('catalogMode').value;
   btn.disabled = true;
-  btn.textContent = '⟳ 생성 중...';
+  btn.textContent = t('generating');
   try {
     const res = await requestJob('sound_catalog', {mode, lang: currentLang, custom_melodies: getCustomMelodies()});
     const data = res.data;
@@ -1154,7 +1216,7 @@ document.getElementById('soundCatalogBtn').addEventListener('click', async () =>
     showToast('✗ ' + e.message, 'error');
   } finally {
     btn.disabled = false;
-    btn.textContent = '↓ 카탈로그 G-code 다운로드';
+    btn.textContent = t('btn_catalog');
   }
 });
 
@@ -1281,7 +1343,7 @@ function playSingleNote(midi, durTicks) {
 // Duration slider display
 const cmDur = document.getElementById('cmDuration');
 cmDur.addEventListener('input', () => {
-  document.getElementById('cmDurDisplay').textContent = (cmDur.value / 100).toFixed(2) + '초';
+  document.getElementById('cmDurDisplay').textContent = (cmDur.value / 100).toFixed(2) + (currentLang === 'en' ? 's' : '초');
   document.getElementById('cmDurTicks').textContent = cmDur.value;
 });
 
@@ -1617,7 +1679,7 @@ function renderSafety(safety, filename) {
     document.getElementById('sBbox').textContent =
       `[${fmt(safety.bbox_min)}] ~ [${fmt(safety.bbox_max)}]`;
   } else {
-    document.getElementById('sBbox').textContent = '(이동 없음)';
+    document.getElementById('sBbox').textContent = tValue({ko:'(이동 없음)', en:'(no moves)'});
   }
   const p = safety.printable, ph = safety.physical;
   document.getElementById('sPrintable').textContent =
@@ -1646,7 +1708,7 @@ document.getElementById('safetyRecheck').addEventListener('click', async () => {
   const filename = lastSafetyFile;
   const btn = document.getElementById('safetyRecheck');
   btn.disabled = true;
-  btn.textContent = '⟳ ...';
+  btn.textContent = t('checking');
   try {
     const res = await requestJob('validate', {filename, margin_mm: margin, plate_name: currentResult.data.plate_target}, {file: currentResult.blob});
     const data = res.data;
@@ -1658,7 +1720,7 @@ document.getElementById('safetyRecheck').addEventListener('click', async () => {
     if (filename === lastSafetyFile) renderSafety({error: e.message}, filename);
   } finally {
     btn.disabled = false;
-    btn.textContent = currentLang === 'en' ? '↻ Re-validate' : '↻ 재검증';
+    btn.textContent = t('safety_recheck');
   }
 });
 

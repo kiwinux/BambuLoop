@@ -1,16 +1,39 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>BambuLoop — Bambu H2S 자동 반복 인쇄</title>
+<meta name="description" content="Combine sliced G-code and 3MF files for repeat printing on the Bambu Lab, directly in your browser." />
+<title data-i18n="page_title">BambuLoop — Repeat Printing for Bambu Lab H2S</title>
 
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="./assets/style.css">
+<!-- Primer Octicons · mark-github-24 · e575f9b11ab2a713a02c387206315b3f0a85abaf
+MIT License
+
+Copyright (c) 2026 GitHub Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE. -->
 </head>
 <body>
 
-<p id="fileNotice" class="notice" hidden>Pages 또는 로컬 HTTP 주소에서 열어 주세요. · Open this site over HTTP or HTTPS.</p>
+<p id="fileNotice" class="notice" hidden>Open this site over HTTP or HTTPS. · Pages 또는 로컬 HTTP 주소에서 열어 주세요.</p>
 <script>if (location.protocol === "file:") document.getElementById("fileNotice").hidden = false;</script>
 
 <header>
@@ -21,8 +44,14 @@
   <div class="status-bar">
     <span id="engineStatus" role="status" aria-live="polite" hidden></span>
     <span>Bambu Lab H2S</span>
-    <button id="langToggle" style="background:transparent; border:1px solid var(--line-2); color:var(--text); padding:4px 12px; cursor:pointer; font-family:inherit; font-size:11px; letter-spacing:0.1em;">
-      EN / KO
+    <a id="projectLink" class="github-project-link" href="https://github.com/kiwinux/BambuLoop" target="_blank" rel="noopener noreferrer" data-i18n-title="github_project" title="BambuLoop on GitHub">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true" focusable="false">
+        <path d="M10.226 17.284c-2.965-.36-5.054-2.493-5.054-5.256 0-1.123.404-2.336 1.078-3.144-.292-.741-.247-2.314.09-2.965.898-.112 2.111.36 2.83 1.01.853-.269 1.752-.404 2.853-.404 1.1 0 1.999.135 2.807.382.696-.629 1.932-1.1 2.83-.988.315.606.36 2.179.067 2.942.72.854 1.101 2 1.101 3.167 0 2.763-2.089 4.852-5.098 5.234.763.494 1.28 1.572 1.28 2.807v2.336c0 .674.561 1.056 1.235.786 4.066-1.55 7.255-5.615 7.255-10.646C23.5 6.188 18.334 1 11.978 1 5.62 1 .5 6.188.5 12.545c0 4.986 3.167 9.12 7.435 10.669.606.225 1.19-.18 1.19-.786V20.63a2.9 2.9 0 0 1-1.078.224c-1.483 0-2.359-.808-2.987-2.313-.247-.607-.517-.966-1.034-1.033-.27-.023-.359-.135-.359-.27 0-.27.45-.471.898-.471.652 0 1.213.404 1.797 1.235.45.651.921.943 1.483.943.561 0 .92-.202 1.437-.719.382-.381.674-.718.944-.943" />
+      </svg>
+      <span class="visually-hidden" data-i18n="github_project">BambuLoop on GitHub</span>
+    </a>
+    <button id="langToggle" lang="ko" style="background:transparent; border:1px solid var(--line-2); color:var(--text); padding:4px 12px; cursor:pointer; font-family:inherit; font-size:11px; letter-spacing:0.1em;">
+      한국어
     </button>
   </div>
 </header>
@@ -33,13 +62,13 @@
     <!-- Upload -->
     <div class="panel">
       <div class="panel-header">
-        <span class="panel-title"><span data-i18n="panel_upload">파일</span></span>
+        <span class="panel-title"><span data-i18n="panel_upload">Files</span></span>
       </div>
       <div class="panel-body">
         <label class="dropzone" id="dropzone">
           <div class="dropzone-text">
-            <strong data-i18n="choose_files">파일을 선택하거나 여기에 놓으세요</strong><br>
-            <span data-i18n="file_types">G-code · 슬라이싱된 3MF · 브라우저에서 처리</span>
+            <strong data-i18n="choose_files">Choose files or drop them here</strong><br>
+            <span data-i18n="file_types">G-code · sliced 3MF · processed in this browser</span>
           </div>
           <input type="file" id="fileInput" multiple accept=".gcode,.gco,.g,.3mf" />
         </label>
@@ -47,15 +76,15 @@
         <div class="job-list" id="jobList"></div>
         <div class="summary">
           <div class="summary-card">
-            <div class="summary-label">JOBS</div>
+            <div class="summary-label" data-i18n="job_count">JOBS</div>
             <div class="summary-value" id="sumJobs">0</div>
           </div>
           <div class="summary-card">
-            <div class="summary-label">TOTAL PRINTS</div>
+            <div class="summary-label" data-i18n="total_prints">TOTAL PRINTS</div>
             <div class="summary-value" id="sumPrints">0</div>
           </div>
           <div class="summary-card">
-            <div class="summary-label">EST. SIZE</div>
+            <div class="summary-label" data-i18n="estimated_size">EST. SIZE</div>
             <div class="summary-value" id="sumSize" style="font-size:16px;">— KB</div>
           </div>
         </div>
@@ -85,24 +114,24 @@
         <label class="toggle">
           <input type="checkbox" id="verify_build_plate" aria-describedby="plateCheckSource" checked />
           <span class="toggle-track"></span>
-          <span class="toggle-label" data-i18n="verify_plate">첫 인쇄에서 원본 빌드 플레이트 확인</span>
+          <span class="toggle-label" data-i18n="verify_plate">Check the source build plate on the first print</span>
         </label>
         <div class="field-hint" id="plateCheckSource" role="status"></div>
       </div>
       <button class="btn-primary" id="generateBtn" disabled>
-        통합 G-code 생성
+        Generate G-code
       </button>
       <div style="display:flex; gap:8px;">
-        <button class="btn-secondary" id="dryRunBtn" style="flex:1;"><span data-i18n="btn_dryrun">드라이런 파일 생성</span></button>
-        <button class="btn-secondary" id="resetBtn" style="flex:0 0 auto;"><span data-i18n="btn_reset">초기화</span></button>
+        <button class="btn-secondary" id="dryRunBtn" style="flex:1;"><span data-i18n="btn_dryrun">Generate dry-run</span></button>
+        <button class="btn-secondary" id="resetBtn" style="flex:0 0 auto;"><span data-i18n="btn_reset">Reset</span></button>
       </div>
       <div class="result" id="result">
-        <div class="result-title"><span data-i18n="result_complete">생성 완료</span></div>
+        <div class="result-title"><span data-i18n="result_complete">File generated</span></div>
         <div class="result-stats">
-          <div>파일명: <span class="v" id="rFile">—</span></div>
-          <div>크기: <span class="v" id="rSize">—</span></div>
-          <div>총 라인: <span class="v" id="rLines">—</span></div>
-          <div>총 인쇄: <span class="v" id="rCopies">—</span></div>
+          <div>Filename: <span class="v" id="rFile">—</span></div>
+          <div>Size: <span class="v" id="rSize">—</span></div>
+          <div>Total Lines: <span class="v" id="rLines">—</span></div>
+          <div>Total Prints: <span class="v" id="rCopies">—</span></div>
         </div>
 
         <div class="field-hint" id="resultPlateCheck" aria-live="polite"></div>
@@ -112,33 +141,33 @@
           <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; gap:8px; flex-wrap:wrap;">
             <div style="font-weight:700; font-size:13px;" id="safetyVerdict">—</div>
             <div style="display:flex; gap:6px; align-items:center;">
-              <span style="font-size:11px; color:var(--text-dim);"><span data-i18n="purge_margin">퍼징 마진</span></span>
+              <span style="font-size:11px; color:var(--text-dim);"><span data-i18n="purge_margin">Purge margin</span></span>
               <input type="number" id="safetyMargin" value="20" min="0" max="50" step="1" style="width:60px; background:var(--bg); color:var(--text); border:1px solid var(--line-2); padding:4px;" />
               <span style="font-size:11px; color:var(--text-dim);">mm</span>
-              <button class="btn-secondary" id="safetyRecheck" style="padding:4px 10px; font-size:11px;"><span data-i18n="safety_recheck">↻ 재검증</span></button>
+              <button class="btn-secondary" id="safetyRecheck" style="padding:4px 10px; font-size:11px;" data-i18n="safety_recheck" data-busy-i18n="checking">Re-validate</button>
             </div>
           </div>
           <div class="result-stats" style="grid-template-columns:1fr 1fr;">
-            <div>이동 명령: <span class="v" id="sMoves">—</span></div>
-            <div>실제 BBox: <span class="v" id="sBbox" style="font-size:11px;">—</span></div>
-            <div>인쇄 영역: <span class="v" id="sPrintable" style="font-size:11px;">—</span></div>
-            <div><span data-i18n="safety_physical">구간별 검사 범위</span> <span class="v" id="sPhysical" style="font-size:11px;">—</span></div>
+            <div>Move Commands: <span class="v" id="sMoves">—</span></div>
+            <div>Actual BBox: <span class="v" id="sBbox" style="font-size:11px;">—</span></div>
+            <div>Printable Area: <span class="v" id="sPrintable" style="font-size:11px;">—</span></div>
+            <div><span data-i18n="safety_physical">Envelope of checked paths</span> <span class="v" id="sPhysical" style="font-size:11px;">—</span></div>
           </div>
           <div style="display:flex; gap:8px; margin-top:8px;">
             <div style="flex:1; padding:8px; background:rgba(255,165,0,0.06); border-left:3px solid #f5a623;">
-              ⚠️ 영역 밖: <strong id="sSoftCount">0</strong>
-              <button class="btn-secondary" id="sSoftDetailBtn" style="padding:2px 8px; margin-left:6px; font-size:11px;" disabled><span data-i18n="safety_details">상세</span></button>
+              ⚠️ Out of Area: <strong id="sSoftCount">0</strong>
+              <button class="btn-secondary" id="sSoftDetailBtn" style="padding:2px 8px; margin-left:6px; font-size:11px;" disabled><span data-i18n="safety_details">Details</span></button>
             </div>
             <div style="flex:1; padding:8px; background:rgba(255,80,80,0.06); border-left:3px solid #e74c3c;">
-              ⛔ 충돌 위험: <strong id="sHardCount">0</strong>
-              <button class="btn-secondary" id="sHardDetailBtn" style="padding:2px 8px; margin-left:6px; font-size:11px;" disabled>상세</button>
+              ⛔ Collision Risk: <strong id="sHardCount">0</strong>
+              <button class="btn-secondary" id="sHardDetailBtn" style="padding:2px 8px; margin-left:6px; font-size:11px;" disabled>Details</button>
             </div>
           </div>
           <div class="field-hint" id="sHeader" style="margin-top:6px;"></div>
         </div>
 
         <p id="repackNote" class="notice" hidden></p>
-        <a class="btn-download" id="downloadLink" href="#" download>↓ 다운로드</a>
+        <a class="btn-download" id="downloadLink" href="#" download>↓ Download</a>
       </div>
     </div>
   </div>
@@ -147,13 +176,13 @@
   <aside>
     <div class="panel">
       <div class="panel-header">
-        <span class="panel-title"><span data-i18n="panel_settings">반복 인쇄 설정</span></span>
+        <span class="panel-title"><span data-i18n="panel_settings">Repeat print settings</span></span>
       </div>
 
       <!-- Cooling settings -->
       <div class="settings-section" data-section="cooling">
         <div class="settings-header">
-          <span><span data-i18n="section_cooling">냉각 시퀀스</span></span>
+          <span><span data-i18n="section_cooling">Cooling Sequence</span></span>
           <span class="chev">▾</span>
         </div>
         <div class="settings-body">
@@ -161,7 +190,7 @@
             <div class="field-row">
               <div>
                 <div class="field-label">
-                  <span data-i18n="bed_detach_temp">베드 분리 온도</span>
+                  <span data-i18n="bed_detach_temp">Bed Detach Temperature</span>
                   <span class="info-tip" data-tip="bed_detach_tip">ⓘ</span>
                 </div>
                 <div class="field-hint">PLA 35°C · PETG 35°C · ABS 40°C (max 40°C)</div>
@@ -172,8 +201,8 @@
           <div class="field">
             <div class="field-row">
               <div>
-                <div class="field-label">냉각 반복 횟수 <span class="info-tip" data-tip="cooling_retries_tip">ⓘ</span></div>
-                <div class="field-hint"><span data-i18n="cooling_wait_hint">1~30회 · 기본 5회</span></div>
+                <div class="field-label">Cooling Retries <span class="info-tip" data-tip="cooling_retries_tip">ⓘ</span></div>
+                <div class="field-hint"><span data-i18n="cooling_wait_hint">1–30 waits · default 5</span></div>
               </div>
               <input type="number" id="cooling_retries" value="5" min="1" max="30" />
             </div>
@@ -181,20 +210,20 @@
           <div class="field">
             <div class="field-row">
               <div>
-                <div class="field-label">챔버 냉각 목표</div>
-                <div class="field-hint">0 = 챔버 대기 안 함</div>
+                <div class="field-label">Chamber Cool Target</div>
+                <div class="field-hint">0 = No chamber wait</div>
               </div>
               <input type="number" id="cooling_chamber_temp" value="0" min="0" max="60" />
             </div>
           </div>
           <div class="field">
-            <div class="field-label" style="margin-bottom:4px;">팬 제어 (개별 ON/OFF) <span class="info-tip" data-tip="fan_tip">ⓘ</span></div>
+            <div class="field-label" style="margin-bottom:4px;">Fan Control (per-fan ON/OFF) <span class="info-tip" data-tip="fan_tip">ⓘ</span></div>
             <div class="fan-row" id="fan-row-p1">
               <label class="toggle">
                 <input type="checkbox" id="part_fan_enabled" aria-labelledby="part_fanLabel" checked />
                 <span class="toggle-track"></span>
               </label>
-              <div><span class="fan-name" id="part_fanLabel" data-i18n="part_fan">파트 쿨링</span><span class="fan-id">P1</span></div>
+              <div><span class="fan-name" id="part_fanLabel" data-i18n="part_fan">Part fan</span><span class="fan-id">P1</span></div>
               <input type="number" id="part_fan_speed" aria-labelledby="part_fanLabel" value="100" min="0" max="100" /><span class="fan-pct">%</span>
             </div>
             <div class="fan-row" id="fan-row-p2">
@@ -202,7 +231,7 @@
                 <input type="checkbox" id="aux_fan_enabled" aria-labelledby="aux_fanLabel" checked />
                 <span class="toggle-track"></span>
               </label>
-              <div><span class="fan-name" id="aux_fanLabel" data-i18n="aux_fan">AUX 보조 팬</span><span class="fan-id">P2</span></div>
+              <div><span class="fan-name" id="aux_fanLabel" data-i18n="aux_fan">Auxiliary fan</span><span class="fan-id">P2</span></div>
               <input type="number" id="aux_fan_speed" aria-labelledby="aux_fanLabel" value="100" min="0" max="100" /><span class="fan-pct">%</span>
             </div>
             <div class="fan-row" id="fan-row-p3">
@@ -210,15 +239,15 @@
                 <input type="checkbox" id="chamber_fan_enabled" aria-labelledby="chamber_fanLabel" checked />
                 <span class="toggle-track"></span>
               </label>
-              <div><span class="fan-name" id="chamber_fanLabel" data-i18n="chamber_fan">챔버 배기</span><span class="fan-id">P3</span></div>
+              <div><span class="fan-name" id="chamber_fanLabel" data-i18n="chamber_fan">Chamber fan</span><span class="fan-id">P3</span></div>
               <input type="number" id="chamber_fan_speed" aria-labelledby="chamber_fanLabel" value="100" min="0" max="100" /><span class="fan-pct">%</span>
             </div>
-            <div class="field-hint" style="margin-top:6px;">토글 OFF 시 명시적 M106 P&lt;n&gt; S0 전송 (잔류 상태 차단)</div>
+            <div class="field-hint" style="margin-top:6px;">When OFF, send explicit M106 P&lt;n&gt; S0 (block residual state)</div>
           </div>
           <!-- Parking Z (two values shown together) -->
           <div class="field" style="border-top:1px solid var(--line); margin-top:10px; padding-top:10px;">
             <div class="field-label" style="color:var(--accent); margin-bottom:4px;">
-              <span data-i18n="parking_z_group">파킹 Z 계산</span>
+              <span data-i18n="parking_z_group">Parking Z Calculation</span>
               <span class="info-tip" data-tip="parking_z_tip">ⓘ</span>
             </div>
             <div class="field-hint" style="margin-bottom:8px; font-family:monospace; font-size:10.5px; color:var(--text);">
@@ -226,15 +255,15 @@
             </div>
             <div class="field-row">
               <div>
-                <div class="field-label" style="color:#5fc8ff;">└ <span data-i18n="parking_z_min">파킹 Z 최소값</span></div>
-                <div class="field-hint" data-i18n="parking_z_min_hint">절대 baseline (작은 인쇄물 보호)</div>
+                <div class="field-label" style="color:#5fc8ff;">└ <span data-i18n="parking_z_min">Parking Z Minimum</span></div>
+                <div class="field-hint" data-i18n="parking_z_min_hint">Absolute baseline (protects small prints)</div>
               </div>
               <input type="number" id="cooling_park_z_min" value="20" min="20" max="320" />
             </div>
             <div class="field-row" style="margin-top:6px;">
               <div>
-                <div class="field-label" style="color:#ffaa55;">└ <span data-i18n="parking_z_clearance">인쇄물 위 여유</span></div>
-                <div class="field-hint" data-i18n="parking_z_clearance_hint">큰 인쇄물에 자동 여유 추가</div>
+                <div class="field-label" style="color:#ffaa55;">└ <span data-i18n="parking_z_clearance">Clearance Above Print</span></div>
+                <div class="field-hint" data-i18n="parking_z_clearance_hint">Auto-adds clearance for tall prints</div>
               </div>
               <input type="number" id="park_z_clearance" value="10" min="3" max="50" />
             </div>
@@ -245,21 +274,21 @@
       <!-- Eject settings -->
       <div class="settings-section" data-section="eject">
         <div class="settings-header">
-          <span><span data-i18n="section_eject">분리(밀어내기) 시퀀스</span></span>
+          <span><span data-i18n="section_eject">Eject (Sweep) Sequence</span></span>
           <span class="chev">▾</span>
         </div>
         <div class="settings-body">
           <!-- ==== Sweep visualization (live preview) ==== -->
           <div class="sweep-viz-wrap" style="margin-bottom:14px; border:1px solid var(--line); padding:10px; background:var(--bg-2);">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-              <div style="font-size:11px; color:var(--text-faint); letter-spacing:0.1em;"><span data-i18n="sweep_preview">스윕 미리보기</span> <span id="previewHeight"></span></div>
-              <button class="btn-secondary" id="sweepVizToggle" style="padding:2px 10px; font-size:11px;">접기 ▾</button>
+              <div style="font-size:11px; color:var(--text-faint); letter-spacing:0.1em;"><span data-i18n="sweep_preview">Sweep preview</span> <span id="previewHeight"></span></div>
+              <button class="btn-secondary" id="sweepVizToggle" style="padding:2px 10px; font-size:11px;">Collapse ▾</button>
             </div>
             <div id="sweepVizContent">
               <div style="display:flex; gap:8px; align-items:flex-start;">
                 <!-- Z progress indicator (left side) -->
                 <div style="display:flex; flex-direction:column; align-items:center; padding-top:14px;">
-                  <div style="font-size:9px; color:var(--text-faint); margin-bottom:4px;">Z단</div>
+                  <div style="font-size:9px; color:var(--text-faint); margin-bottom:4px;">Z</div>
                   <svg id="sweepZBar" width="32" height="180" style="background:#0a0a0a; border:1px solid var(--line);"></svg>
                   <div id="sweepZLabel" style="font-size:9px; color:var(--accent); margin-top:4px;">1/4</div>
                 </div>
@@ -270,37 +299,37 @@
               </div>
               <!-- Controls -->
               <div style="display:flex; gap:8px; align-items:center; margin-top:8px; flex-wrap:wrap;">
-                <button class="btn-secondary" id="sweepPlayBtn" style="padding:4px 10px; font-size:11px; min-width:60px;"><span data-i18n="sweep_play">▶ 재생</span></button>
-                <span style="font-size:10px; color:var(--text-dim);"><span data-i18n="sweep_speed">속도</span></span>
+                <button class="btn-secondary" id="sweepPlayBtn" style="padding:4px 10px; font-size:11px; min-width:60px;"><span data-i18n="sweep_play">▶ Play</span></button>
+                <span style="font-size:10px; color:var(--text-dim);"><span data-i18n="sweep_speed">Speed</span></span>
                 <input type="range" id="sweepSpeed" min="0.5" max="3" step="0.5" value="1" style="flex:1; min-width:80px;" />
                 <span id="sweepSpeedLabel" style="font-size:10px; color:var(--accent); min-width:30px;">1.0x</span>
               </div>
               <div id="sweepStatus" style="font-size:10px; color:var(--text-dim); margin-top:4px; text-align:center;">—</div>
               <div class="field-hint" style="margin-top:6px;">
-                값을 바꾸면 즉시 반영됩니다. 헤드 마커는 실제 동작 순서대로 움직입니다.
+                Changes apply instantly. Head marker moves in actual operation order.
               </div>
             </div>
           </div>
 
           <div class="field">
             <div class="field-row">
-              <div><div class="field-label"><span data-i18n="method">방식</span></div></div>
+              <div><div class="field-label"><span data-i18n="method">Method</span></div></div>
               <select id="eject_method">
-                <option value="multi_sweep">다중 스윕</option>
-                <option value="edge_to_center" selected>좌우 교차</option>
-                <option value="edge_to_center_bottom">좌우 교차 (바닥 고정)</option>
-                <option value="zigzag">지그재그</option>
-                <option value="sweep">단일 스윕</option>
-                <option value="bottom_only">바닥 반복 (낮은 오브젝트)</option>
-                <option value="none">사용 안 함</option>
+                <option value="multi_sweep">Multi Sweep</option>
+                <option value="edge_to_center" selected>Edge-to-Center</option>
+                <option value="edge_to_center_bottom">Edge-to-Center (Bottom)</option>
+                <option value="zigzag">Zigzag</option>
+                <option value="sweep">Single Sweep</option>
+                <option value="bottom_only">Bottom Only (short objects)</option>
+                <option value="none">None</option>
               </select>
             </div>
           </div>
           <div class="field">
             <div class="field-row">
               <div>
-                <div class="field-label">최종 스윕 Z 오프셋 <span class="info-tip" data-tip="eject_z_offset_tip">ⓘ</span></div>
-                <div class="field-hint">베드 표면 위 노즐 높이 (mm)</div>
+                <div class="field-label">Final Sweep Z Offset <span class="info-tip" data-tip="eject_z_offset_tip">ⓘ</span></div>
+                <div class="field-hint">Nozzle height above bed surface (mm)</div>
               </div>
               <input type="number" id="eject_z_offset" value="0.4" step="0.1" min="0" max="5" />
             </div>
@@ -308,8 +337,8 @@
           <div class="field">
             <div class="field-row">
               <div>
-                <div class="field-label">파킹 Z 여유 <span class="info-tip" data-tip="initial_z_clearance_tip">ⓘ</span></div>
-                <div class="field-hint">XY 파킹 시 인쇄물 위 여유 (mm)</div>
+                <div class="field-label">Parking Z Clearance <span class="info-tip" data-tip="initial_z_clearance_tip">ⓘ</span></div>
+                <div class="field-hint">Clearance above print for XY parking (mm)</div>
               </div>
               <input type="number" id="eject_z_start_offset" value="10" step="0.5" min="2" max="50" />
             </div>
@@ -317,8 +346,8 @@
           <div class="field">
             <div class="field-row">
               <div>
-                <div class="field-label">하강 단계 수 <span class="info-tip" data-tip="descent_steps_tip">ⓘ</span></div>
-                <div class="field-hint">위→아래 분할 횟수 (1=한번에)</div>
+                <div class="field-label">Descent Steps <span class="info-tip" data-tip="descent_steps_tip">ⓘ</span></div>
+                <div class="field-hint">Top→bottom divisions (1 = single pass)</div>
               </div>
               <input type="number" id="eject_descent_steps" value="4" min="1" max="10" />
             </div>
@@ -326,7 +355,7 @@
           <div class="field">
             <div class="field-row">
               <div>
-                <div class="field-label">스윕 속도 <span class="info-tip" data-tip="sweep_speed_tip">ⓘ</span></div>
+                <div class="field-label">Sweep Speed <span class="info-tip" data-tip="sweep_speed_tip">ⓘ</span></div>
                 <div class="field-hint">mm/min</div>
               </div>
               <input type="number" id="eject_speed" value="9000" min="500" max="12000" step="100" />
@@ -335,8 +364,8 @@
           <div class="field">
             <div class="field-row">
               <div>
-                <div class="field-label">Y축 스윕 횟수 (X 분할) <span class="info-tip" data-tip="x_passes_tip">ⓘ</span></div>
-                <div class="field-hint">한 단계에서 X 위치 몇 번 분할하여 스윕할지</div>
+                <div class="field-label">Y-axis sweep count (X divisions) <span class="info-tip" data-tip="x_passes_tip">ⓘ</span></div>
+                <div class="field-hint">How many X positions to sweep at each Z step</div>
               </div>
               <input type="number" id="eject_passes" value="11" min="1" max="30" />
             </div>
@@ -344,8 +373,8 @@
           <div class="field">
             <div class="field-row">
               <div>
-                <div class="field-label">후방 베드밖 거리 <span class="info-tip" data-tip="back_overhang_tip">ⓘ</span></div>
-                <div class="field-hint">Y = (bedY + this value) — 헤드를 베드 밖으로 보낸 뒤 Z 하강 (인쇄물 누름 방지)</div>
+                <div class="field-label">Back Off-bed Distance <span class="info-tip" data-tip="back_overhang_tip">ⓘ</span></div>
+                <div class="field-hint">Y = (bedY + this) — Move head off-bed before lowering Z (avoid pressing print)</div>
               </div>
               <input type="number" id="back_overhang_mm" value="15" min="0" max="30" />
             </div>
@@ -353,21 +382,21 @@
           <div class="field">
             <div class="field-row">
               <div>
-                <div class="field-label">전방 베드밖 거리 <span class="info-tip" data-tip="front_overhang_tip">ⓘ</span></div>
-                <div class="field-hint">Y=−이값 — 베드 앞면 넘어 인쇄물 낙하 보장</div>
+                <div class="field-label">Front Off-bed Distance <span class="info-tip" data-tip="front_overhang_tip">ⓘ</span></div>
+                <div class="field-hint">Y=−this — Pushes past front edge to ensure part falls off</div>
               </div>
               <input type="number" id="front_overhang_mm" value="5" min="0" max="20" />
             </div>
           </div>
           <div class="field">
             <div class="field-row">
-              <div><div class="field-label">베드 X (mm)</div></div>
+              <div><div class="field-label">Bed X (mm)</div></div>
               <input type="number" id="bed_size_x" value="340" min="100" max="500" />
             </div>
           </div>
           <div class="field">
             <div class="field-row">
-              <div><div class="field-label">베드 Y (mm)</div></div>
+              <div><div class="field-label">Bed Y (mm)</div></div>
               <input type="number" id="bed_size_y" value="320" min="100" max="500" />
             </div>
           </div>
@@ -377,48 +406,48 @@
       <!-- Reset / safety -->
       <div class="settings-section collapsed" data-section="reset">
         <div class="settings-header">
-          <span data-i18n="section_reheat">리셋 / 안전 / 재가열</span>
+          <span data-i18n="section_reheat">Reheat / Reset</span>
           <span class="chev">▾</span>
         </div>
         <div class="settings-body">
           <label class="toggle">
             <input type="checkbox" id="pause_after_eject" />
             <span class="toggle-track"></span>
-            <span class="toggle-label">분리 후 일시정지 (Handy 카메라로 검증)</span>
+            <span class="toggle-label">Pause after eject (verify with Handy camera)</span>
           </label>
-          <div class="field-hint" style="margin-left:46px;margin-top:-4px;">M400 U1 삽입. Bambu Handy/Studio에서 'Resume'으로 재개</div>
+          <div class="field-hint" style="margin-left:46px;margin-top:-4px;">Insert M400 U1. Resume via Bambu Handy/Studio.</div>
 
           <label class="toggle">
             <input type="checkbox" id="nozzle_clean_between" checked />
             <span class="toggle-track"></span>
-            <span class="toggle-label">노즐 클리닝 (G150.1)</span>
+            <span class="toggle-label">Nozzle Cleaning (G150.1)</span>
           </label>
-          <div class="field-hint" style="margin-left:46px;margin-top:-4px;">Bambu 플러싱 블록에 이미 포함됨. 플러싱 fallback 시에만 개별 적용.</div>
+          <div class="field-hint" style="margin-left:46px;margin-top:-4px;">Already in Bambu purge block. Only applied separately on purge fallback.</div>
 
           <label class="toggle">
             <input type="checkbox" id="rehome_xy_between" checked />
             <span class="toggle-track"></span>
-            <span class="toggle-label">XY 재호밍 (인쇄 사이)</span>
+            <span class="toggle-label">XY Re-home (between prints)</span>
           </label>
           <label class="toggle">
             <input type="checkbox" id="rehome_z_between" />
             <span class="toggle-track"></span>
-            <span class="toggle-label">Z 재호밍 (느림, 정밀 필요 시)</span>
+            <span class="toggle-label">Z Re-home (slow, only when precision needed)</span>
           </label>
           <label class="toggle">
             <input type="checkbox" id="purge_between" checked />
             <span class="toggle-track"></span>
-            <span class="toggle-label">플러싱 + 클리닝 (Bambu 표준)</span>
+            <span class="toggle-label">Purge + Clean (Bambu standard)</span>
           </label>
           <div class="field-hint" style="margin-left:46px; margin-top:-4px;">
-            가비지 캔으로 필라멘트 배출(E45) + G150.1 와이프 — 베드에 잔여물 없음.<br>
-            <span data-i18n="purge_source">슬라이서 파일의 필라멘트별 퍼징 설정을 사용합니다.</span>
+            Dump filament to garbage can (E45) + G150.1 wipe — no residue on bed.<br>
+            <span data-i18n="purge_source">Uses the filament purge settings from the sliced file.</span>
           </div>
           <div class="field">
             <div class="field-row">
               <div>
-                <div class="field-label">Fallback 시만 사용</div>
-                <div class="field-hint">Bambu 블록 없을 때 수동 E 압출량 (legacy, 무시됨)</div>
+                <div class="field-label">Fallback Only</div>
+                <div class="field-hint">Manual E extrude length when Bambu block absent (legacy, ignored)</div>
               </div>
               <input type="number" id="purge_length_mm" value="30" min="10" max="100" />
             </div>
@@ -426,15 +455,15 @@
 
           <!-- M73 progress recalc options -->
           <div class="field" style="border-top:1px solid var(--line); margin-top:10px; padding-top:10px;">
-            <div class="field-label" style="color:var(--accent);"><span data-i18n="m73_section">M73 진행률 재계산</span></div>
+            <div class="field-label" style="color:var(--accent);"><span data-i18n="m73_section">M73 Progress Recalculation</span></div>
             <div class="field-hint" style="margin-bottom:6px; line-height:1.5;">
-              원본 G-code 헤더의 시간을 기반으로 전체 bambuloop 누적 진행률 자동 계산.
-              <strong>항상 ON</strong> — 인쇄 사이 POST_PRINT 시간만 미세조정 가능.
+              Auto-recalculate cumulative bambuloop progress based on original G-code header time.
+              <strong>always ON</strong> — only POST_PRINT time between prints is adjustable.
             </div>
             <div class="field-row">
               <div>
-                <div class="field-label"><span data-i18n="m73_override">사이클당 추가 시간 (분)</span></div>
-                <div class="field-hint">0 = 자동 추정 (냉각/분리/재가열/리셋 합산)</div>
+                <div class="field-label"><span data-i18n="m73_override">Additional Time per Cycle (min)</span></div>
+                <div class="field-hint">0 = Auto-estimate (cool/eject/reheat/reset sum)</div>
               </div>
               <input type="number" id="post_print_override_min" value="0" min="0" max="60" step="1" />
             </div>
@@ -445,66 +474,64 @@
       <!-- Sound alert settings -->
       <div class="settings-section" data-section="sound">
         <div class="settings-header">
-          <span><span data-i18n="section_sound">사운드 알림 (M1006)</span></span>
+          <span><span data-i18n="section_sound">Sound Notifications (M1006)</span></span>
           <span class="chev">▾</span>
         </div>
         <div class="settings-body">
           <div class="field-hint" style="margin-bottom:10px;">
-            각 이벤트마다 다른 멜로디를 선택할 수 있습니다.<br>
-            🆕 <strong>시작/종료 사운드</strong>는 Bambu 정품 사운드를 우리 사운드로 교체합니다.
+            Select a different melody for each event.<br>
+            🆕 <strong>Start/End Sound</strong>replaces Bambu default sound with our sound.
           </div>
 
           <div class="field">
-            <div class="field-label" style="color:var(--accent);"><span data-i18n="sound_event_start">첫 인쇄 시작</span></div>
-            <div style="display:flex; gap:6px; align-items:center;"><select id="sound_print_start" style="flex:1; min-width:0; background:var(--bg); color:var(--text); border:1.5px solid var(--line-2); padding:8px; font-family:inherit; font-size:12px;"></select><button class="btn-secondary sound-preview-btn" data-target="sound_print_start" style="padding:6px 10px; font-size:13px; flex-shrink:0;" title="브라우저에서 미리듣기">▶</button></div>
+            <div class="field-label" style="color:var(--accent);"><span data-i18n="sound_event_start">First print start</span></div>
+            <div style="display:flex; gap:6px; align-items:center;"><select id="sound_print_start" style="flex:1; min-width:0; background:var(--bg); color:var(--text); border:1.5px solid var(--line-2); padding:8px; font-family:inherit; font-size:12px;"></select><button class="btn-secondary sound-preview-btn" data-target="sound_print_start" style="padding:6px 10px; font-size:13px; flex-shrink:0;" data-i18n-title="sound_preview_title" title="Preview in browser">▶</button></div>
           </div>
 
           <div class="field">
-            <div class="field-label" style="color:var(--accent);"><span data-i18n="sound_event_done">프린팅 완료 (냉각 직전)</span></div>
-            <div style="display:flex; gap:6px; align-items:center;"><select id="sound_print_done" style="flex:1; min-width:0; background:var(--bg); color:var(--text); border:1.5px solid var(--line-2); padding:8px; font-family:inherit; font-size:12px;"></select><button class="btn-secondary sound-preview-btn" data-target="sound_print_done" style="padding:6px 10px; font-size:13px; flex-shrink:0;" title="브라우저에서 미리듣기">▶</button></div>
+            <div class="field-label" style="color:var(--accent);"><span data-i18n="sound_event_done">Print Done (before cooling)</span></div>
+            <div style="display:flex; gap:6px; align-items:center;"><select id="sound_print_done" style="flex:1; min-width:0; background:var(--bg); color:var(--text); border:1.5px solid var(--line-2); padding:8px; font-family:inherit; font-size:12px;"></select><button class="btn-secondary sound-preview-btn" data-target="sound_print_done" style="padding:6px 10px; font-size:13px; flex-shrink:0;" data-i18n-title="sound_preview_title" title="Preview in browser">▶</button></div>
           </div>
 
           <div class="field">
-            <div class="field-label" style="color:var(--accent);"><span data-i18n="sound_event_cool">냉각 완료 (분리 직전)</span></div>
-            <div style="display:flex; gap:6px; align-items:center;"><select id="sound_cool_done" style="flex:1; min-width:0; background:var(--bg); color:var(--text); border:1.5px solid var(--line-2); padding:8px; font-family:inherit; font-size:12px;"></select><button class="btn-secondary sound-preview-btn" data-target="sound_cool_done" style="padding:6px 10px; font-size:13px; flex-shrink:0;" title="브라우저에서 미리듣기">▶</button></div>
+            <div class="field-label" style="color:var(--accent);"><span data-i18n="sound_event_cool">Cool Done (before eject)</span></div>
+            <div style="display:flex; gap:6px; align-items:center;"><select id="sound_cool_done" style="flex:1; min-width:0; background:var(--bg); color:var(--text); border:1.5px solid var(--line-2); padding:8px; font-family:inherit; font-size:12px;"></select><button class="btn-secondary sound-preview-btn" data-target="sound_cool_done" style="padding:6px 10px; font-size:13px; flex-shrink:0;" data-i18n-title="sound_preview_title" title="Preview in browser">▶</button></div>
           </div>
 
           <div class="field">
-            <div class="field-label" style="color:var(--accent);"><span data-i18n="sound_event_sweep">스윕 완료 (재가열 직전)</span></div>
-            <div style="display:flex; gap:6px; align-items:center;"><select id="sound_sweep_done" style="flex:1; min-width:0; background:var(--bg); color:var(--text); border:1.5px solid var(--line-2); padding:8px; font-family:inherit; font-size:12px;"></select><button class="btn-secondary sound-preview-btn" data-target="sound_sweep_done" style="padding:6px 10px; font-size:13px; flex-shrink:0;" title="브라우저에서 미리듣기">▶</button></div>
+            <div class="field-label" style="color:var(--accent);"><span data-i18n="sound_event_sweep">Sweep Done (before reheat)</span></div>
+            <div style="display:flex; gap:6px; align-items:center;"><select id="sound_sweep_done" style="flex:1; min-width:0; background:var(--bg); color:var(--text); border:1.5px solid var(--line-2); padding:8px; font-family:inherit; font-size:12px;"></select><button class="btn-secondary sound-preview-btn" data-target="sound_sweep_done" style="padding:6px 10px; font-size:13px; flex-shrink:0;" data-i18n-title="sound_preview_title" title="Preview in browser">▶</button></div>
           </div>
 
           <div class="field">
-            <div class="field-label" style="color:var(--accent);"><span data-i18n="sound_event_restart">재시작 (다음 인쇄 직전)</span></div>
-            <div style="display:flex; gap:6px; align-items:center;"><select id="sound_restart" style="flex:1; min-width:0; background:var(--bg); color:var(--text); border:1.5px solid var(--line-2); padding:8px; font-family:inherit; font-size:12px;"></select><button class="btn-secondary sound-preview-btn" data-target="sound_restart" style="padding:6px 10px; font-size:13px; flex-shrink:0;" title="브라우저에서 미리듣기">▶</button></div>
+            <div class="field-label" style="color:var(--accent);"><span data-i18n="sound_event_restart">Restart (before next print)</span></div>
+            <div style="display:flex; gap:6px; align-items:center;"><select id="sound_restart" style="flex:1; min-width:0; background:var(--bg); color:var(--text); border:1.5px solid var(--line-2); padding:8px; font-family:inherit; font-size:12px;"></select><button class="btn-secondary sound-preview-btn" data-target="sound_restart" style="padding:6px 10px; font-size:13px; flex-shrink:0;" data-i18n-title="sound_preview_title" title="Preview in browser">▶</button></div>
           </div>
 
           <div class="field">
-            <div class="field-label" style="color:var(--accent);"><span data-i18n="sound_event_end">마지막 인쇄 종료</span></div>
-            <div style="display:flex; gap:6px; align-items:center;"><select id="sound_print_end" style="flex:1; min-width:0; background:var(--bg); color:var(--text); border:1.5px solid var(--line-2); padding:8px; font-family:inherit; font-size:12px;"></select><button class="btn-secondary sound-preview-btn" data-target="sound_print_end" style="padding:6px 10px; font-size:13px; flex-shrink:0;" title="브라우저에서 미리듣기">▶</button></div>
+            <div class="field-label" style="color:var(--accent);"><span data-i18n="sound_event_end">Final print end</span></div>
+            <div style="display:flex; gap:6px; align-items:center;"><select id="sound_print_end" style="flex:1; min-width:0; background:var(--bg); color:var(--text); border:1.5px solid var(--line-2); padding:8px; font-family:inherit; font-size:12px;"></select><button class="btn-secondary sound-preview-btn" data-target="sound_print_end" style="padding:6px 10px; font-size:13px; flex-shrink:0;" data-i18n-title="sound_preview_title" title="Preview in browser">▶</button></div>
           </div>
 
           <div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--line);">
-            <div class="field-label" style="margin-bottom:8px;"><span data-i18n="catalog_label">🔊 카탈로그 다운로드</span></div>
+            <div class="field-label" style="margin-bottom:8px;"><span data-i18n="catalog_label">🔊 Catalog Download</span></div>
             <select id="catalogMode" style="width:100%; background:var(--bg); color:var(--text); border:1.5px solid var(--line-2); padding:8px; font-family:inherit; font-size:12px; margin-bottom:6px;">
-              <option value="all"><span data-i18n="catalog_all">전체 (기본 + 커스텀)</span></option>
-              <option value="builtin"><span data-i18n="catalog_builtin">기본 프리셋만</span></option>
-              <option value="custom"><span data-i18n="catalog_custom">내 커스텀 멜로디만</span></option>
+              <option value="all"><span data-i18n="catalog_all">All (Built-in + Custom)</span></option>
+              <option value="builtin"><span data-i18n="catalog_builtin">Built-in Only</span></option>
+              <option value="custom"><span data-i18n="catalog_custom">My Custom Only</span></option>
             </select>
-            <button class="btn-secondary" id="soundCatalogBtn" style="width:100%;">
-              ↓ 카탈로그 G-code 다운로드
-            </button>
+            <button class="btn-secondary" id="soundCatalogBtn" style="width:100%;" data-i18n="btn_catalog" data-busy-i18n="generating">↓ Download Catalog G-code</button>
             <div class="field-hint" style="margin-top:6px; line-height:1.5;">
-              각 프리셋 2초 간격 순차 재생. <span id="soundCatalogCount" style="color:var(--accent);"></span>
+              Sequentially play each preset with 2s interval. <span id="soundCatalogCount" style="color:var(--accent);"></span>
             </div>
           </div>
 
           <div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--line);">
             <button class="btn-secondary" id="customMelodyBtn" style="width:100%; background:rgba(255,122,47,0.1); border-color:var(--accent); color:var(--accent);">
-              커스텀 멜로디 만들기
+              Create Custom Melody
             </button>
             <div class="field-hint" style="margin-top:6px; line-height:1.5;">
-              <span data-i18n="melody_use">저장한 멜로디는 사운드 목록에서 선택할 수 있습니다.</span>
+              <span data-i18n="melody_use">Saved melodies appear in the sound lists.</span>
             </div>
           </div>
         </div>
@@ -513,9 +540,21 @@
   </aside>
 </main>
 
+<aside id="contributionNotice" class="contribution-notice" aria-labelledby="contributionHeading" hidden>
+  <h2 id="contributionHeading" data-i18n="contribute_heading">Contribute to BambuLoop</h2>
+  <button type="button" id="dismissContribution" data-i18n-title="dismiss_notice" title="Dismiss this notice">
+    <span aria-hidden="true">×</span><span class="visually-hidden" data-i18n="dismiss_notice">Dismiss this notice</span>
+  </button>
+  <p data-i18n="contribute_message">BambuLoop supports the H2S today. Help translate the interface or contribute to planned support for the H2D, H2C, H3C, X1C, P1S, and A1.</p>
+  <div class="contribution-links">
+    <a id="roadmapLink" href="https://github.com/kiwinux/BambuLoop#roadmap--contributing" target="_blank" rel="noopener noreferrer" data-i18n="view_roadmap">View roadmap</a>
+    <a href="https://github.com/kiwinux/BambuLoop/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer" data-i18n="contribution_guide">Contribution guide</a>
+  </div>
+</aside>
+
 <footer class="privacy-footer" aria-labelledby="privacyHeading">
-  <h2 id="privacyHeading" data-i18n="privacy_heading">개인정보 처리방침</h2>
-  <p data-i18n="privacy_files">선택한 G-code·3MF 파일과 생성된 결과 파일은 브라우저 안에서만 처리되며 외부 서버로 전송되지 않습니다.</p>
+  <h2 id="privacyHeading" data-i18n="privacy_heading">Privacy policy</h2>
+  <p data-i18n="privacy_files">The G-code and 3MF files you select, and the files you generate, are processed in your browser. They are never sent to an external server.</p>
 </footer>
 
 <!-- ============================================================ -->
@@ -543,63 +582,63 @@
 <div class="modal-backdrop" id="customMelodyModal" style="display:none;">
   <div class="modal-card" style="max-width:680px;">
     <div class="modal-header">
-      <span style="color:var(--accent); font-weight:700; letter-spacing:0.15em;"><span data-i18n="modal_melody_builder">커스텀 멜로디 빌더</span></span>
+      <span style="color:var(--accent); font-weight:700; letter-spacing:0.15em;"><span data-i18n="modal_melody_builder">Custom Melody Builder</span></span>
       <button class="modal-close" id="cmCancel">×</button>
     </div>
     <div class="modal-body">
       <p style="font-size:12px; color:var(--text-dim); margin-bottom:14px; line-height:1.6;">
-        음표를 추가/순서변경/삭제해서 멜로디를 만드세요.
-        <strong style="color:var(--accent);">브라우저 미리듣기</strong>는 즉시 가능 (모터 음과 다름),
-        <strong style="color:var(--accent);">프린터 미리듣기</strong>는 G-code 다운로드 후 프린터에서 실행.
+        Add / reorder / delete notes to compose your melody.
+        <strong style="color:var(--accent);">Browser Preview</strong>is instant (differs from motor sound),
+        <strong style="color:var(--accent);">Printer Preview</strong>requires downloading G-code and running on the printer.
       </p>
 
       <!-- Melody name -->
       <div class="field" style="margin-bottom:12px;">
-        <div class="field-label">멜로디 이름</div>
-        <input type="text" id="cmName" placeholder="예: 내 멜로디 1" data-placeholder-en="e.g. My Melody 1" data-placeholder-ko="예: 내 멜로디 1" style="width:100%; background:var(--bg); color:var(--text); border:1.5px solid var(--line-2); padding:8px; font-family:inherit; font-size:13px;" />
+        <div class="field-label">Melody Name</div>
+        <input type="text" id="cmName" placeholder="e.g. My Melody 1" data-placeholder-en="e.g. My Melody 1" data-placeholder-ko="예: 내 멜로디 1" style="width:100%; background:var(--bg); color:var(--text); border:1.5px solid var(--line-2); padding:8px; font-family:inherit; font-size:13px;" />
       </div>
 
       <!-- Add note (piano keyboard) -->
       <div style="border:1px solid var(--line); padding:12px; margin-bottom:12px;">
-        <div class="field-label" style="color:var(--accent); margin-bottom:8px;">▸ 🎹 피아노 (들리는 음역대 C4~D6)</div>
+        <div class="field-label" style="color:var(--accent); margin-bottom:8px;">▸ 🎹 Piano (audible range C4~D6)</div>
         <div class="field-hint" style="margin-bottom:8px;">
-          건반을 클릭하면 즉시 노트 추가 + 미리듣기. 길이는 아래 슬라이더로 미리 설정.
+          Click a key to instantly add a note with preview. Set length on the slider first.
         </div>
         <div class="piano-wrap">
           <div class="piano" id="pianoContainer"></div>
         </div>
         <div style="display:grid; grid-template-columns: 1fr auto; gap:8px; align-items:end; margin-top:10px;">
           <div>
-            <div class="field-hint" style="margin-bottom:3px;">길이: <span id="cmDurDisplay">0.2초</span> (B=<span id="cmDurTicks">20</span>)</div>
+            <div class="field-hint" style="margin-bottom:3px;">Length: <span id="cmDurDisplay">0.2s</span> (B=<span id="cmDurTicks">20</span>)</div>
             <input type="range" id="cmDuration" min="10" max="80" step="5" value="20" style="width:100%;" />
           </div>
-          <button class="btn-secondary" id="cmAddRest" style="padding:8px 16px;">+ 휴지</button>
+          <button class="btn-secondary" id="cmAddRest" style="padding:8px 16px;">+ Rest</button>
         </div>
       </div>
 
       <!-- Note list -->
       <div style="border:1px solid var(--line); padding:12px; margin-bottom:12px; min-height:80px; max-height:200px; overflow-y:auto;">
-        <div class="field-label" style="color:var(--accent); margin-bottom:8px;">▸ <span data-i18n="modal_melody_label">멜로디</span> (<span id="cmNoteCount">0</span><span class="cm-notes-suffix">음, </span><span id="cmTotalDur">0초</span>)</div>
+        <div class="field-label" style="color:var(--accent); margin-bottom:8px;">▸ <span data-i18n="modal_melody_label">Melody</span> (<span id="cmNoteCount">0</span><span class="cm-notes-suffix">notes, </span><span id="cmTotalDur">0s</span>)</div>
         <div id="cmNoteList" style="display:flex; flex-wrap:wrap; gap:6px;"></div>
-        <div id="cmEmptyHint" style="color:var(--text-faint); font-size:12px; text-align:center; padding:20px;">위에서 음을 추가하세요</div>
+        <div id="cmEmptyHint" style="color:var(--text-faint); font-size:12px; text-align:center; padding:20px;">Add notes above</div>
       </div>
 
       <!-- Preview -->
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px;">
-        <button class="btn-secondary" id="cmPreviewBrowser"><span data-i18n="btn_preview_browser">🔊 브라우저 미리듣기</span></button>
-        <button class="btn-secondary" id="cmPreviewPrinter"><span data-i18n="btn_preview_printer">📥 프린터 G-code 다운로드</span></button>
+        <button class="btn-secondary" id="cmPreviewBrowser"><span data-i18n="btn_preview_browser">🔊 Browser Preview</span></button>
+        <button class="btn-secondary" id="cmPreviewPrinter"><span data-i18n="btn_preview_printer">📥 Download Printer G-code</span></button>
       </div>
 
       <!-- Saved melodies -->
       <div style="border-top:1px solid var(--line); padding-top:12px;">
-        <div class="field-label" style="color:var(--accent); margin-bottom:8px;">▸ 저장된 커스텀 멜로디 (<span id="cmSavedCount">0</span>개, 무제한 추가)</div>
+        <div class="field-label" style="color:var(--accent); margin-bottom:8px;">▸ Saved Custom Melodies (<span id="cmSavedCount">0</span>, unlimited)</div>
         <div id="cmSavedList" style="display:flex; flex-direction:column; gap:6px; max-height:240px; overflow-y:auto;"></div>
-        <div data-i18n="no_saved_melodies" id="cmSavedEmpty" style="color:var(--text-faint); font-size:12px; text-align:center; padding:8px;">저장된 멜로디 없음</div>
+        <div data-i18n="no_saved_melodies" id="cmSavedEmpty" style="color:var(--text-faint); font-size:12px; text-align:center; padding:8px;">No saved melodies</div>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn-secondary" id="cmClear"><span data-i18n="btn_new_melody">새 멜로디</span></button>
-      <button class="btn-primary" id="cmSave" style="padding:10px 24px;"><span data-i18n="btn_save_melody">멜로디 저장</span></button>
+      <button class="btn-secondary" id="cmClear"><span data-i18n="btn_new_melody">New melody</span></button>
+      <button class="btn-primary" id="cmSave" style="padding:10px 24px;"><span data-i18n="btn_save_melody">Save melody</span></button>
     </div>
   </div>
 </div>
@@ -612,79 +651,79 @@
 <div class="modal-backdrop" id="dryRunModal" style="display:none;">
   <div class="modal-card">
     <div class="modal-header">
-      <span style="color:var(--accent); font-weight:700; letter-spacing:0.15em;">드라이런 옵션</span>
+      <span style="color:var(--accent); font-weight:700; letter-spacing:0.15em;">⚡ DRY-RUN OPTIONS</span>
       <button class="modal-close" id="drCancel">×</button>
     </div>
     <div class="modal-body">
       <p style="font-size:12px; color:var(--text-dim); margin-bottom:14px; line-height:1.5;">
-        실제 인쇄 없이 자동화 시퀀스만 검증합니다.<br>
-        포함할 phase를 선택하세요. <strong style="color:var(--accent);">대기 OFF</strong>는 M190/M109 등 온도 도달 대기를 생략하여 빠른 검증이 가능합니다.
+        Validate automation sequence only (no actual print).<br>
+        Select phases to include. <strong style="color:var(--accent);">wait OFF</strong>skips M190/M109 wait-for-temp commands for fast validation.
       </p>
 
       <div class="dr-row">
         <label class="dr-toggle">
           <input type="checkbox" id="dr_include_cooling" checked>
-          <span class="dr-label">냉각 시퀀스 포함</span>
+          <span class="dr-label">Include Cooling</span>
         </label>
         <label class="dr-toggle dr-sub">
           <input type="checkbox" id="dr_wait_cooling">
-          <span class="dr-label">└ 냉각 완료 대기 (M190 R)</span>
+          <span class="dr-label">└ Wait for cool done (M190 R)</span>
         </label>
       </div>
 
       <div class="dr-row">
         <label class="dr-toggle">
           <input type="checkbox" id="dr_include_eject" checked>
-          <span class="dr-label">분리(스윕) 시퀀스 포함</span>
+          <span class="dr-label">Include Eject (Sweep)</span>
         </label>
       </div>
 
       <div class="dr-row">
         <label class="dr-toggle">
           <input type="checkbox" id="dr_include_reheat" checked>
-          <span class="dr-label">재가열 시퀀스 포함</span>
+          <span class="dr-label">Include Reheat</span>
         </label>
         <label class="dr-toggle dr-sub">
           <input type="checkbox" id="dr_wait_reheat">
-          <span class="dr-label">└ 재가열 완료 대기 (M190/M109)</span>
+          <span class="dr-label">└ Wait for reheat done (M190/M109)</span>
         </label>
       </div>
 
       <div class="dr-row">
         <label class="dr-toggle">
           <input type="checkbox" id="dr_include_reset" checked>
-          <span class="dr-label">리셋 (재호밍/퍼지) 포함</span>
+          <span class="dr-label">Include Reset (re-home/purge)</span>
         </label>
       </div>
 
       <div style="border-top:1px solid var(--line); margin:14px 0 10px; padding-top:10px;">
-        <div style="font-size:11px; color:var(--text-faint); text-transform:uppercase; letter-spacing:0.15em; margin-bottom:8px;">▸ 시작 시퀀스 최적화</div>
+        <div style="font-size:11px; color:var(--text-faint); text-transform:uppercase; letter-spacing:0.15em; margin-bottom:8px;">▸ Start Sequence Optimization</div>
         <label class="dr-toggle">
           <input type="checkbox" id="dr_minimal_start">
-          <span class="dr-label">⚡ 최소 시작 시퀀스 (캘리브레이션 생략)</span>
+          <span class="dr-label">⚡ Minimal Start (skip calibration)</span>
         </label>
         <div class="field-hint" style="margin-left:26px; line-height:1.5; margin-top:2px; margin-bottom:8px;">
-          유지: <strong style="color:var(--green);">G28 (Z/XY 호밍), 가열, AMS 로드</strong><br>
-          제거: <strong style="color:var(--yellow);">오토 레벨링(G29), 유량/진동 보정, 필라멘트 프라이밍, 노즐 와이프 반복</strong>
+          Kept: <strong style="color:var(--green);">G28 (Z/XY home), heating, AMS load</strong><br>
+          Removed: <strong style="color:var(--yellow);">Auto-leveling (G29), flow/vibration calib, filament priming, nozzle wipe loop</strong>
         </div>
 
         <label class="dr-toggle">
           <input type="checkbox" id="dr_skip_ams_load">
-          <span class="dr-label">🚫 AMS 필라멘트 로드 스킵</span>
+          <span class="dr-label">🚫 Skip AMS Filament Load</span>
         </label>
         <div class="field-hint" style="margin-left:26px; line-height:1.5; margin-top:2px; margin-bottom:8px;">
-          추가 제거: <strong style="color:var(--yellow);">T0/M620/M621 (AMS 슬롯 선택), 플러싱 블록(E45)</strong><br>
-          <span style="color:var(--text-faint);">→ 필라멘트 없이 순수 가열 + 스윕 + 클리닝 테스트. 종료 시 간소화됨.</span>
+          Also removed: <strong style="color:var(--yellow);">T0/M620/M621 (AMS slot select), purge block (E45)</strong><br>
+          <span style="color:var(--text-faint);">→ Pure heat + sweep + clean test without filament. Simplified termination.</span>
         </div>
       </div>
 
       <div style="border-top:1px solid var(--line); margin:14px 0 10px; padding-top:10px;">
-        <div style="font-size:11px; color:var(--text-faint); text-transform:uppercase; letter-spacing:0.15em; margin-bottom:8px;">▸ 반복 사이클</div>
+        <div style="font-size:11px; color:var(--text-faint); text-transform:uppercase; letter-spacing:0.15em; margin-bottom:8px;">▸ Repeat Cycles</div>
         <div class="field">
           <div class="field-row">
             <div>
-              <div class="field-label">사이클 수</div>
-              <div class="field-hint">1~10 회 반복 — 각 사이클 사이에 가짜 body 삽입</div>
+              <div class="field-label">Cycle Count</div>
+              <div class="field-hint">1–10 cycles — fake body inserted between cycles</div>
             </div>
             <input type="number" id="dr_cycles" value="1" min="1" max="10" style="width:80px;" />
           </div>
@@ -692,14 +731,14 @@
       </div>
 
       <div class="dr-info" id="drInfo">
-        시뮬레이션 — 인쇄높이 <strong id="drInfoH">40</strong>mm /
-        노즐 <strong id="drInfoN">220</strong>°C / 베드 <strong id="drInfoB">55</strong>°C
-        <br><span id="drInfoSample" style="color:var(--text-faint);">시작 G-code: 기본값 (업로드 파일 없음)</span>
+        Simulation — Print Height <strong id="drInfoH">40</strong>mm /
+        Nozzle <strong id="drInfoN">220</strong>°C / Bed <strong id="drInfoB">55</strong>°C
+        <br><span id="drInfoSample" style="color:var(--text-faint);">Start G-code: defaults (no uploaded file)</span>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn-secondary" id="drCancel2">취소</button>
-      <button class="btn-primary" id="drGenerate" style="padding:10px 24px;">▶ 생성</button>
+      <button class="btn-secondary" id="drCancel2">Cancel</button>
+      <button class="btn-primary" id="drGenerate" data-i18n="generate_dry" data-busy-i18n="generating" style="padding:10px 24px;">▶ Generate</button>
     </div>
   </div>
 </div>

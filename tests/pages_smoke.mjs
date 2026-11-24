@@ -145,11 +145,55 @@ try {
     console.log(check.stdout.trim());
   }
   const direct = await fetch(origin+prefix);
-  assert.equal(direct.status,200,await direct.text());
+  const staticPage=await direct.text();
+  assert.equal(direct.status,200);
+  assert.match(staticPage, /<html lang="en">/);
+  assert.match(staticPage, /<title\b[^>]*>BambuLoop — Repeat Printing for Bambu Lab H2S<\/title>/);
+  assert.match(staticPage, />Choose files or drop them here</);
+  await cdp("Emulation.setDeviceMetricsOverride",{width:1200,height:800,deviceScaleFactor:1,mobile:false});
   const nav = await cdp("Page.navigate",{url:origin+prefix});
   if (nav.errorText) throw new Error("Chrome navigation: "+nav.errorText);
   await wait("!!document.querySelector('#fileInput')","static HTML",10000);
   await wait("document.querySelector('#sound_print_done')?.options.length > 1","page and presets",15000);
+  const languages = {
+    en: {title:"BambuLoop — Repeat Printing for Bambu Lab H2S", files:"Choose files or drop them here",
+         toggle:"한국어", preview:"Preview in browser", placeholder:"e.g. My Melody 1"},
+    ko: {title:"BambuLoop — Bambu Lab H2S 자동 반복 인쇄", files:"파일을 선택하거나 여기에 놓으세요",
+         toggle:"EN", preview:"브라우저에서 미리듣기", placeholder:"예: 내 멜로디 1"}
+  };
+  async function checkLocale(lang) {
+    await wait("document.documentElement.lang==="+JSON.stringify(lang)+" && document.title==="+JSON.stringify(languages[lang].title),"locale "+lang,10000);
+    const ui = await evaluate("({title:document.title,files:document.querySelector('[data-i18n=choose_files]').textContent,toggle:document.getElementById('langToggle').textContent.trim(),preview:document.querySelector('.sound-preview-btn').title,placeholder:document.getElementById('cmName').placeholder})");
+    assert.deepEqual(ui,languages[lang]);
+  }
+  async function revisit(lang) {
+    await evaluate("window.qaBeforeReload=true");
+    await cdp("Page.reload",{ignoreCache:true});
+    await wait("window.qaBeforeReload===undefined && document.querySelector('#sound_print_done')?.options.length>1","new page ready",15000);
+    await checkLocale(lang);
+  }
+  assert.equal(await evaluate("localStorage.getItem('bambuloop_lang')"),null);
+  await checkLocale("en");
+  const links = await evaluate("(()=>{const project=document.getElementById('projectLink'),box=document.getElementById('contributionNotice'), rect=box.getBoundingClientRect();return {repo:project.href,icon:!!project.querySelector('svg path'),roadmap:document.getElementById('roadmapLink').href,guide:box.querySelector('[data-i18n=contribution_guide]').href,shown:!box.hidden,title:document.getElementById('contributionHeading').textContent,nearCorner:rect.left<50 && rect.top>=0 && rect.bottom<=innerHeight && innerHeight-rect.bottom<50}})()");
+  assert.deepEqual(links,{repo:"https://github.com/kiwinux/BambuLoop",icon:true,roadmap:"https://github.com/kiwinux/BambuLoop#roadmap--contributing",guide:"https://github.com/kiwinux/BambuLoop/blob/main/CONTRIBUTING.md",shown:true,title:"Contribute to BambuLoop",nearCorner:true});
+  await evaluate("localStorage.setItem('bambuloop_lang','unknown')");
+  await revisit("en");
+  await evaluate("document.getElementById('langToggle').click()");
+  await checkLocale("ko");
+  await revisit("ko");
+  assert.match(await evaluate("document.getElementById('contributionHeading').textContent"), /개발에 참여/);
+  assert.match(await evaluate("decodeURI(document.getElementById('roadmapLink').href)"), /README\.ko\.md#로드맵--기여$/);
+  await cdp("Emulation.setDeviceMetricsOverride",{width:390,height:844,deviceScaleFactor:1,mobile:true});
+  assert.ok(await evaluate("(()=>{const b=document.getElementById('contributionNotice'),r=b.getBoundingClientRect();return !b.hidden && r.left>=0 && r.left<24 && r.right<=document.documentElement.clientWidth && r.top>=0 && Math.abs(innerHeight-r.bottom)<25})()"));
+  await cdp("Emulation.setDeviceMetricsOverride",{width:1200,height:800,deviceScaleFactor:1,mobile:false});
+  await evaluate("document.getElementById('dismissContribution').click()");
+  assert.ok(await evaluate("document.getElementById('contributionNotice').hidden"));
+  await evaluate("document.getElementById('langToggle').click()");
+  await checkLocale("en");
+  await revisit("en");
+  assert.ok(await evaluate("document.getElementById('contributionNotice').hidden"));
+  await evaluate("document.getElementById('langToggle').click()");
+  await checkLocale("ko");
   const controls=await evaluate(`(() => {
     const ids=['fileInput','part_fan_enabled','aux_fan_enabled','chamber_fan_enabled'];
     const focus=ids.map(id=>{const el=document.getElementById(id);el.focus();return document.activeElement===el;});
@@ -249,6 +293,13 @@ try {
   assert.ok(!(await evaluate("document.getElementById('downloadLink').textContent")).includes("3mf"));
   const dryText=await evaluate("fetch(document.getElementById('downloadLink').href).then(r=>r.text())");
   assert.equal(checks(dryText),0);
+  await evaluate("document.getElementById('langToggle').click()");
+  await checkLocale("ko");
+  assert.match(await evaluate("document.getElementById('drGenerate').textContent"), /생성/);
+  assert.equal(await evaluate("document.querySelector('[data-i18n=total_prints]').textContent"), "총 인쇄");
+  await evaluate("document.getElementById('langToggle').click()");
+  await checkLocale("en");
+
   await evaluate("document.getElementById('verify_build_plate').click();document.querySelector('.job-item [data-act=del]').click()");
   await wait("document.querySelectorAll('.job-item').length===1 && document.getElementById('plateCheckSource').textContent.includes('plate_10')", "switch first source plate");
   assert.match(await evaluate("document.getElementById('plateCheckSource').textContent"), /High Temp Plate/);
@@ -321,7 +372,7 @@ try {
   assert.ok(served.every(([method,u])=>method==="GET" && !u.includes("/api/")));
   assert.ok(requests.every(u=>u.startsWith(origin+"/")||u.startsWith("blob:")||u.startsWith("data:")));
   assert.deepEqual(errors,[]);
-  console.log("PASS · static offline UI, 2-plate 3MF/AMS/MD5, source bed and one/zero build-plate check, single retreat, 0 mm, English, dry-run, sound catalog, reset, 42 mm block, plain G-code");
+  console.log("PASS · English first visit, localized titles and saved languages, GitHub/contribution links and dismissal, static offline UI, 2-plate 3MF/AMS/MD5, source bed and one/zero build-plate check, single retreat, 0 mm, English, dry-run, sound catalog, reset, 42 mm block, plain G-code");
   console.log("G-code commands SHA-256:",createHash("sha256").update(text.split(/\r?\n/).map(l=>l.split(";")[0].trim()).filter(Boolean).join("\n")).digest("hex"));
 } catch(error) {
   if(evaluate) console.error(await evaluate("JSON.stringify({url:location.href,title:document.title,body:document.body?.textContent.slice(0,160),toast:document.querySelector('#toast')?.textContent,alert:document.querySelector('#alertModalBody')?.textContent,status:document.querySelector('#engineStatus')?.textContent})").catch(()=>null));
