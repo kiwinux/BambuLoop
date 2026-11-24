@@ -1,8 +1,5 @@
 """Quick smoke test for the parser and the combined-G-code builder."""
 
-import sys
-sys.path.insert(0, '/home/claude/bambuloop_v40')
-
 from gcode_processor import (
     BambuGcodeParser, AutomationSettings, JobConfig,
     build_combined_gcode,

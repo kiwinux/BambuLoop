@@ -1,0 +1,6 @@
+Pyodide 314.0.8 (MPL-2.0) — https://github.com/pyodide/pyodide/tree/314.0.8
+CPython 3.14.2 — https://github.com/python/cpython/tree/v3.14.2
+
+Unmodified browser distribution files from https://registry.npmjs.org/pyodide/-/pyodide-314.0.8.tgz
+npm package integrity: sha512-74Wq1kXOC+CCEzAfxuRAO701nAcCMLjf8NrwvWpu8S41dVMXwXmLQ05dYB+F4e46AdnGo0oq7YHSVUpHsoarLQ==
+The adjacent license files accompany this distribution.

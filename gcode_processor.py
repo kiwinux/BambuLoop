@@ -25,10 +25,14 @@ H2S spec notes:
 
 from __future__ import annotations
 
+import math
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Optional
+
+from build_plate import (ArchiveSurfaces, filter_plate_checks, has_plate_check,
+                         sliced_surface, source_check_end, surface_id, surface_name)
 
 
 # ============================================================
@@ -143,6 +147,7 @@ class PrintTemps:
     nozzle_diameter: float = 0.0     # nozzle diameter (0.2 / 0.4 / 0.6 / 0.8 mm)
     nozzle_flow_type: str = ""       # flow type: "Standard" | "High Flow" | ""
     nozzle_hrc: str = ""             # hardness / material: "Stainless Steel" | "Hardened Steel" | "Tungsten Carbide" | ""
+    bed_type: str = ""               # effective build surface from the selected sliced plate
 
 
 @dataclass
@@ -218,6 +223,7 @@ class AutomationSettings:
 
     # User-defined custom melodies — {"<name>": [[midi, dur], ...], ...}
     custom_melodies: dict = field(default_factory=dict)
+    verify_build_plate: bool = True  # keep one source check at the start of the entire job
 
 
 # ============================================================
@@ -242,19 +248,19 @@ class BambuGcodeParser:
         "; FEATURE: Custom",      # end gcode is often tagged as a Custom feature
     ]
 
-    def __init__(self, content: str, filename: str = "unknown.gcode"):
+    def __init__(self, content: str, filename: str = "unknown.gcode", *, surfaces=None, plate_number=None):
         self.content = content
         self.filename = filename
         self.lines = content.split("\n")
         self.sections = GcodeSections()
         self.temps = PrintTemps()
-        self._parse()
+        self._parse(surfaces, plate_number)
 
     # --------------------------------------------------------
     # Main parsing routine
     # --------------------------------------------------------
 
-    def _parse(self) -> None:
+    def _parse(self, surfaces, plate_number) -> None:
         # 1) Locate HEADER / CONFIG blocks
         header_start = header_end = -1
         config_start = config_end = -1
@@ -271,7 +277,7 @@ class BambuGcodeParser:
                 config_end = i
 
         # 2) First-layer start = end of START_GCODE
-        search_from = (config_end + 1) if config_end >= 0 else 0
+        search_from = (config_end + 1) if config_end >= 0 else max(0, header_end + 1)
         first_layer = self._find_first_layer(search_from)
 
         # 3) End-of-body = start of END_GCODE
@@ -285,8 +291,8 @@ class BambuGcodeParser:
             self.sections.config = "\n".join(self.lines[config_start:config_end + 1])
 
         # START_GCODE: from (CONFIG_BLOCK end + 1) to (first_layer - 1)
-        if config_end >= 0 and first_layer > config_end:
-            self.sections.start_gcode = "\n".join(self.lines[config_end + 1:first_layer])
+        if first_layer > search_from:
+            self.sections.start_gcode = "\n".join(self.lines[search_from:first_layer])
 
         # BODY: first_layer ~ end_start - 1
         if first_layer >= 0 and end_start > first_layer:
@@ -297,7 +303,7 @@ class BambuGcodeParser:
             self.sections.end_gcode = "\n".join(self.lines[end_start:])
 
         # 5) Extract temperature info
-        self.temps = self._extract_temps()
+        self.temps = self._extract_temps(surfaces, plate_number)
 
         # 6) Extract the Bambu standard purge routine (nozzle load line block)
         # The region between ";===== nozzle load line =====" and ";===== noozle load line end ====="
@@ -328,7 +334,7 @@ class BambuGcodeParser:
             ;===== wipe right nozzle start =====
 
         Returns:
-            Block contents. Motion lines around the markers (G91 / G1 Y-16 / G90 etc.) are excluded.
+            Slicer versions may include the purge-bin retreat before the end marker.
             Returns an empty string if no block is found.
         """
         if not self.sections.start_gcode:
@@ -469,7 +475,7 @@ class BambuGcodeParser:
         # 3) Still not found → fall back to end of file
         return len(self.lines)
 
-    def _extract_temps(self) -> PrintTemps:
+    def _extract_temps(self, surfaces, plate_number) -> PrintTemps:
         """Extract temperature values from CONFIG_BLOCK comments."""
         cfg = {}
         for line in self.sections.config.split("\n"):
@@ -488,23 +494,24 @@ class BambuGcodeParser:
             except (ValueError, AttributeError):
                 return default
 
-        # The bed-temp key depends on curr_bed_type
-        bed_type = cfg.get("curr_bed_type", "Textured PEI Plate")
-        if "Textured" in bed_type:
-            bed_key = "textured_plate_temp"
-            bed_init_key = "textured_plate_temp_initial_layer"
-        elif "Cool" in bed_type:
-            bed_key = "cool_plate_temp"
-            bed_init_key = "cool_plate_temp_initial_layer"
-        elif "Engineer" in bed_type:
-            bed_key = "eng_plate_temp"
-            bed_init_key = "eng_plate_temp_initial_layer"
-        elif "Supertack" in bed_type:
-            bed_key = "supertack_plate_temp"
-            bed_init_key = "supertack_plate_temp_initial_layer"
-        else:
-            bed_key = "hot_plate_temp"
-            bed_init_key = "hot_plate_temp_initial_layer"
+        raw_bed = cfg.get("curr_bed_type") or sliced_surface(self.lines)
+        selected = surfaces.selected(plate_number, raw_bed) if surfaces is not None else None
+        config_bed = selected.config_name if selected else surface_name(raw_bed)
+        bed = config_bed or (selected.wire_id if selected else "")
+        if config_bed and selected and config_bed != raw_bed and self.sections.config:
+            self.sections.config, changed = re.subn(r"(?im)^;[ \t]*curr_bed_type[ \t]*=[^\r\n]*",
+                                                    lambda _: "; curr_bed_type = " + config_bed, self.sections.config, count=1)
+            if not changed:
+                self.sections.config = self.sections.config.replace("; CONFIG_BLOCK_END", "; curr_bed_type = " + config_bed + "\n; CONFIG_BLOCK_END", 1)
+        prefix = surface_id(bed)
+        # For missing/custom surfaces prefer the temperature in the actual start
+        # sequence. A numeric fallback does not assign a bed identity.
+        source_temp = None
+        for match in re.finditer(r"(?im)^[ \t]*M(?:140|190)[ \t]+S(\d+(?:\.\d+)?)\b", self.sections.start_gcode):
+            if float(match[1]) > 0:
+                source_temp = int(float(match[1]))
+        bed_temp = _int(prefix + "_temp", source_temp or 55) if prefix else (source_temp or 55)
+        bed_initial = _int(prefix + "_temp_initial_layer", source_temp or bed_temp) if prefix else bed_temp
 
         # max_z_height lives in HEADER_BLOCK as "; key: value" (CONFIG uses "key = value")
         max_z = 0.0
@@ -516,6 +523,9 @@ class BambuGcodeParser:
                 except ValueError:
                     pass
                 break
+
+        layer_heights = re.finditer(r"^;[ \t]*Z_HEIGHT:[ \t]*(\d+(?:\.\d+)?)", self.sections.body, re.M | re.I)
+        max_z = max(max_z, max((float(match[1]) for match in layer_heights), default=0.0))
 
         def _float(key: str, default: float) -> float:
             try:
@@ -571,8 +581,9 @@ class BambuGcodeParser:
         return PrintTemps(
             nozzle_initial=_int("nozzle_temperature_initial_layer", 220),
             nozzle=_int("nozzle_temperature", 220),
-            bed_initial=_int(bed_init_key, _int("hot_plate_temp_initial_layer", 55)),
-            bed=_int(bed_key, _int("hot_plate_temp", 55)),
+            bed_type=bed,
+            bed_initial=bed_initial,
+            bed=bed_temp,
             chamber=_int("chamber_temperatures", 0),
             filament_type=str(cfg.get("filament_type", "PLA")).split(";")[0].strip(),
             max_z_height=max_z,
@@ -595,6 +606,8 @@ class BambuGcodeParser:
             "nozzle_flow_type": self.temps.nozzle_flow_type,
             "nozzle_hrc": self.temps.nozzle_hrc,
             "bed_temp": self.temps.bed_initial,
+            "bed_type": self.temps.bed_type,
+            "has_build_plate_check": has_plate_check(self.sections.start_gcode),
             "chamber_temp": self.temps.chamber,
             "max_z_height": self.temps.max_z_height,
             "header_lines": len(self.sections.header.split("\n")),
@@ -701,6 +714,28 @@ def generate_cooling_sequence(s: AutomationSettings, max_z_height: float = 0.0,
     return "\n".join(lines)
 
 
+class EjectClearanceError(ValueError):
+    """A sweep cannot clear the print. Both builders expose the same reason."""
+    def __init__(self, reason: str, height: float, settings: AutomationSettings, filename: str = ''):
+        super().__init__(reason)
+        self.filename = filename
+        self.reason = reason
+        self.height = height
+        self.settings = settings
+
+
+def check_eject_clearance(settings: AutomationSettings, height: float) -> None:
+    method = settings.eject_method
+    if method == "none":
+        return
+    if not math.isfinite(height) or height < 0:
+        raise ValueError("Print height must be a finite, non-negative number.")
+    if method in ("bottom_only", "edge_to_center_bottom") and height >= H2S_HEAD_RAIL_LIMIT:
+        raise EjectClearanceError("bottom_mode", height, settings)
+    if height / max(1, settings.eject_descent_steps - 1) > H2S_HEAD_RAIL_LIMIT:
+        raise EjectClearanceError("step_drop", height, settings)
+
+
 def generate_eject_sequence(s: AutomationSettings, max_z_height: float = 0.0) -> str:
     """Build the eject (push-off) sequence G-code — stepped descent + orthogonal moves.
 
@@ -721,6 +756,7 @@ def generate_eject_sequence(s: AutomationSettings, max_z_height: float = 0.0) ->
             - Y_front = -front_overhang (past the bed front edge)
               The sweep continues past the front edge so parts drop off the bed
     """
+    check_eject_clearance(s, max_z_height)
     if s.eject_method == "none":
         return "; ----- eject sequence disabled -----\n"
 
@@ -818,8 +854,8 @@ def generate_eject_sequence(s: AutomationSettings, max_z_height: float = 0.0) ->
         f";   - method       : {s.eject_method}",
         f";   - X pass count : {s.eject_passes if s.eject_method != 'sweep' else 1} (= Y sweep count)",
         f";   - X coverage   : {x_edge_margin}mm ~ {s.bed_size_x - x_edge_margin}mm (almost edge-to-edge)",
-        f";   - print height : {max_z_height:.1f}mm (auto-extracted from G-code header)",
-        f";   - parking Z    : {z_parking:.1f}mm (print + {parking_z_above:.0f}mm)",
+        f";   - print height : {max_z_height}mm (auto-extracted from G-code header)",
+        f";   - parking Z    : {z_parking:.1f}mm (print + {parking_z_above}mm)",
         f";   - sweep Z range: {z_range_desc}",
         f";   - Y back start : Y={y_back}mm (= bed {s.bed_size_y} + back overhang {s.back_overhang_mm}mm)",
         f";                    ★ outside the bed, so Z descent cannot collide with prints",
@@ -862,7 +898,7 @@ def generate_eject_sequence(s: AutomationSettings, max_z_height: float = 0.0) ->
                 f"; [layer transition — safe order] prev layer ended at (X, Y=-{-y_front}, Z=prev),",
                 f";                     first return Y={y_back} (off bed) → change Z → move X",
                 f"G1 Y{y_back} F9000                  ; (1) Y={y_back} return off-bed (Z held at prev layer Z)",
-                f"G1 Z{z_levels[layer_idx - 1]} F600                    ; (current Z held — sanity)" if False else f"G1 Z{z} F600                        ; (2) once Y is off-bed, change to new layer Z",
+                f"G1 Z{z} F600                        ; (2) once Y is off-bed, change to new layer Z",
             ]
             # (G1 Z is already in the header block below — but we moved it here. Remove the one below.)
             lines += [
@@ -991,6 +1027,44 @@ def generate_reheat_sequence(temps: PrintTemps, s: AutomationSettings,
     return "\n".join(lines)
 
 
+_RETREAT_MOVE = re.compile(
+    r"G0?1\s*(?:F\d+(?:\.\d+)?\s*)?Y-16(?:\.0*)?(?:\s*F\d+(?:\.\d+)?)?", re.I
+)
+
+
+def stationary_purge_command(command: str) -> bool:
+    """These commands neither move the carriage nor change XYZ positioning mode."""
+    return (command.split()[0] in {"M73", "M400", "M104", "M109", "M106", "M83", "M82", "G4"}
+            or re.fullmatch(r"G92\s*E[+-]?(?:\d+(?:\.\d*)?|\.\d+)", command) is not None
+            or re.fullmatch(r"G0?1\s*(?:F[\d.]+\s*)?E[+-]?[\d.]+(?:\s*F[\d.]+)?", command) is not None)
+
+
+def is_purge_retreat(command: str) -> bool:
+    """The H2S bin exit moves only Y, 16 mm in the negative direction."""
+    return _RETREAT_MOVE.fullmatch(command.strip()) is not None
+
+
+def _terminal_retreat_mode(block: str) -> Optional[str]:
+    """Return the final coordinate mode if the slicer already made the retreat."""
+    mode = None
+    exited = False
+    for raw in block.splitlines():
+        command = raw.partition(";")[0].strip().upper()
+        if not command:
+            continue
+        if command in ("G90", "G91"):
+            mode = command
+        elif stationary_purge_command(command):
+            continue
+        elif mode == "G91" and is_purge_retreat(command):
+            exited = True
+        else:
+            exited = False
+            if command.startswith("G150"):
+                mode = None
+    return mode if exited else None
+
+
 def generate_reset_sequence(s: AutomationSettings, temps: PrintTemps,
                              *, flushing_block: str = "",
                              nozzle_load_line: str = "") -> str:
@@ -1054,11 +1128,13 @@ def generate_reset_sequence(s: AutomationSettings, temps: PrintTemps,
             flushing_clean,
             "; ----- Bambu flushing block END (includes G150.1 wipe) -----",
             "",
-            "G91                               ; relative coordinates",
-            "G1 Y-16 F12000                    ; leave the garbage can",
-            "G90                               ; back to absolute coordinates",
-            "",
         ]
+        exit_mode = _terminal_retreat_mode(flushing_clean)
+        if exit_mode is None:
+            lines.extend(("G91", "G1 Y-16 F12000                    ; leave the garbage can"))
+        if exit_mode != "G90":
+            lines.append("G90                               ; back to absolute coordinates")
+        lines.append("")
 
         # Prime nozzle tip + extrude baseline (replicates Bambu's first-print "nozzle load line")
         # 
@@ -1152,6 +1228,15 @@ def generate_reset_sequence(s: AutomationSettings, temps: PrintTemps,
 # Combined G-code builder
 # ============================================================
 
+def _plate_sections(sections: GcodeSections, keep_start: bool) -> GcodeSections:
+    # Clean each unique source once, before copies are expanded. Keep the caller's sections reusable.
+    return replace(sections,
+                   start_gcode=filter_plate_checks(sections.start_gcode, keep_start),
+                   body=filter_plate_checks(sections.body, False),
+                   end_gcode=filter_plate_checks(sections.end_gcode, False),
+                   flushing_block=filter_plate_checks(sections.flushing_block, False))
+
+
 def build_combined_gcode(jobs: list[JobConfig], settings: AutomationSettings) -> str:
     """Combine multiple G-code jobs into a single auto-repeat-print file.
 
@@ -1176,9 +1261,17 @@ def build_combined_gcode(jobs: list[JobConfig], settings: AutomationSettings) ->
     if not jobs:
         raise ValueError("at least one print job is required.")
 
+    jobs = [replace(job, sections=_plate_sections(job.sections, i == 0 and settings.verify_build_plate))
+            for i, job in enumerate(jobs)]
     first_job = jobs[0]
     last_job = jobs[-1]
     total_copies = sum(j.count for j in jobs)
+    if settings.eject_method != "none":
+        for job in jobs:
+            if not math.isfinite(job.temps.max_z_height) or job.temps.max_z_height <= 0:
+                raise EjectClearanceError("unknown_height", 0.0, settings, job.filename)
+        check_eject_clearance(settings, max(job.temps.max_z_height for job in jobs))
+    layer_counts = [job_layer_count(job.sections) for job in jobs]
 
     out: list[str] = []
 
@@ -1200,7 +1293,7 @@ def build_combined_gcode(jobs: list[JobConfig], settings: AutomationSettings) ->
         s = total_estimated_sec % 60
         new_time_str = (f"{h}h {m}m {s}s" if h > 0 else f"{m}m {s}s")
         header_text = re.sub(
-            r"(;\s*total estimated time:\s*)[\dhms\s]+",
+            r"(;[ \t]*total estimated time:[ \t]*)[\dhms \t]+",
             r"\g<1>" + new_time_str + f"  ; BambuLoop x{total_copies} (post~{post_for_header//60}m each)",
             header_text, count=1, flags=re.IGNORECASE
         )
@@ -1210,21 +1303,22 @@ def build_combined_gcode(jobs: list[JobConfig], settings: AutomationSettings) ->
             mp_h, mp_m, mp_s = mp_total // 3600, (mp_total % 3600) // 60, mp_total % 60
             mp_str = (f"{mp_h}h {mp_m}m {mp_s}s" if mp_h > 0 else f"{mp_m}m {mp_s}s")
             header_text = re.sub(
-                r"(;\s*model printing time:\s*)[\dhms\s]+(;)",
-                r"\g<1>" + mp_str + r"\g<2>",
+                r"(;[ \t]*model printing time:[ \t]*)[\dhms \t]+",
+                r"\g<1>" + mp_str,
                 header_text, count=1, flags=re.IGNORECASE
             )
 
     # Also update total layer number cumulatively (so the printer UI shows current/total correctly)
     if header_text:
-        _layers_per_body = count_layers_in_body(first_job.sections.body)
-        if _layers_per_body > 0:
-            _total_all = _layers_per_body * total_copies
-            header_text = re.sub(
-                r"(;\s*total layer number:\s*)\d+",
-                r"\g<1>" + str(_total_all),
-                header_text, count=1, flags=re.IGNORECASE
+        total_layers = sum(layers * job.count for job, layers in zip(jobs, layer_counts))
+        if total_layers > 0:
+            header_text, updated = re.subn(
+                r"(^;[ \t]*total layer number:[ \t]*)\d+",
+                rf"\g<1>{total_layers}", header_text, count=1, flags=re.I | re.M
             )
+            if not updated:
+                header_text = header_text.replace("; HEADER_BLOCK_END",
+                    f"; total layer number: {total_layers}\n; HEADER_BLOCK_END", 1)
 
     if header_text:
         out.append(header_text)
@@ -1331,6 +1425,7 @@ def build_combined_gcode(jobs: list[JobConfig], settings: AutomationSettings) ->
     ]
 
     print_idx = 0
+    completed_layers = 0
     for job_idx, job in enumerate(jobs):
         for copy_idx in range(1, job.count + 1):
             print_idx += 1
@@ -1347,13 +1442,12 @@ def build_combined_gcode(jobs: list[JobConfig], settings: AutomationSettings) ->
             # Insert body — rewrite M73 P/R and accumulate M73 L so the Bambu UI updates correctly
             # If each body went 1..N independently, the Bambu firmware would reject the decrease and the UI would freeze.
             # → Pass the cumulative value so the UI keeps updating.
-            layers_per_body = count_layers_in_body(job.sections.body)
-            body_layer_offset = (print_idx - 1) * layers_per_body
             body_with_m73 = rewrite_m73_in_body(
                 job.sections.body, print_idx, total_copies,
                 body_time_sec, post_print_sec,
-                layer_offset=body_layer_offset,
+                layer_offset=completed_layers,
             )
+            completed_layers += layer_counts[job_idx]
             out.append(body_with_m73)
 
             if not is_last_print:
@@ -1547,13 +1641,14 @@ def build_dry_run_gcode(
     ...(other args follow the same shape)
     """
     out = []
+    sample = _plate_sections(sample_parser.sections, settings.verify_build_plate) if sample_parser else None
 
     # 1) header / config
-    if sample_parser is not None and sample_parser.sections.header:
+    if sample is not None and sample.header:
         out += [
-            sample_parser.sections.header,
+            sample.header,
             "",
-            sample_parser.sections.config,
+            sample.config,
             "",
         ]
     else:
@@ -1612,16 +1707,16 @@ def build_dry_run_gcode(
     def _process_start_gcode(sg: str) -> str:
         """Apply minimal_start and skip_ams_load filters to the uploaded start_gcode."""
         processed = sg
-        if minimal_start:
-            processed, removed = strip_calibration_blocks(processed)
-            start_removed_blocks.extend(removed)
         if skip_ams_load:
             processed, removed = strip_ams_load_blocks(processed)
             start_removed_blocks.extend(removed)
+        if minimal_start:
+            processed, removed = strip_calibration_blocks(processed, preserve_plate_check=settings.verify_build_plate)
+            start_removed_blocks.extend(removed)
         return processed
 
-    if (minimal_start or skip_ams_load) and sample_parser is not None and sample_parser.sections.start_gcode:
-        processed_sg = _process_start_gcode(sample_parser.sections.start_gcode)
+    if (minimal_start or skip_ams_load) and sample is not None and sample.start_gcode:
+        processed_sg = _process_start_gcode(sample.start_gcode)
         flags = []
         if minimal_start:
             flags.append("MINIMAL START (calibration skipped)")
@@ -1657,10 +1752,10 @@ def build_dry_run_gcode(
         else:
             out += ["G4 P3000"]
         out.append("")
-    elif sample_parser is not None and sample_parser.sections.start_gcode:
+    elif sample is not None and sample.start_gcode:
         out += [
             "; ----- start sequence (uploaded file verbatim — full Bambu calibration) -----",
-            sample_parser.sections.start_gcode,
+            sample.start_gcode,
             "",
         ]
     else:
@@ -1700,9 +1795,10 @@ def build_dry_run_gcode(
     ]
 
     # Flushing block from the uploaded file (not used when skip_ams_load=True)
+    reset_settings = replace(settings, purge_between=False) if skip_ams_load else settings
     flushing = ""
-    if sample_parser is not None and not skip_ams_load:
-        flushing = sample_parser.sections.flushing_block
+    if sample is not None and not skip_ams_load:
+        flushing = sample.flushing_block
 
     for cycle_idx in range(1, total_cycles + 1):
         is_last_cycle = cycle_idx == total_cycles
@@ -1757,7 +1853,7 @@ def build_dry_run_gcode(
 
             # 4h) Reset (flushing + cleaning)
             if include_reset:
-                out.append(generate_reset_sequence(settings, fake_temps, flushing_block=flushing))
+                out.append(generate_reset_sequence(reset_settings, fake_temps, flushing_block=flushing))
             else:
                 out += ["; ----- reset sequence skipped -----", ""]
 
@@ -1795,7 +1891,7 @@ def build_dry_run_gcode(
         # Use the uploaded file's full end_gcode (preserves Bambu's original end sound)
         out += [
             "; [full shutdown sequence] reusing uploaded end_gcode (includes original Bambu end sound)",
-            sample_parser.sections.end_gcode if sample_parser else "",
+            sample.end_gcode if sample else "",
             "; --- DRY-RUN complete ---",
         ]
 
@@ -1806,12 +1902,33 @@ def build_dry_run_gcode(
 # .3mf repackaging (compatible with Bambu Studio / Handy upload)
 # ============================================================
 
+_PLATE_GCODE = re.compile(r"Metadata/plate_(\d+)\.gcode", re.I)
+
+
+def sliced_plates(names):
+    """Return unique numeric plate IDs with the original ZIP entry casing."""
+    plates = {}
+    for name in names:
+        match = _PLATE_GCODE.fullmatch(name)
+        if match:
+            number = int(match[1])
+            if number in plates:
+                raise ValueError(f"Duplicate sliced plate {number}")
+            plates[number] = name
+    return sorted(plates.items())
+
+
+class ArchiveSizeLimit(ValueError):
+    """The expanded output archive exceeds the requested byte budget."""
+
+
 def repackage_3mf(
     source_3mf_path: str,
     combined_gcode: str,
     output_3mf_path: str,
     plate_name: str = "plate_1",
     unify_all_plates: bool = True,
+    *, max_uncompressed_bytes: Optional[int] = None,
 ) -> dict:
     """Build a new .3mf by replacing plate_N.gcode in the original .3mf with combined_gcode.
 
@@ -1830,150 +1947,96 @@ def repackage_3mf(
     Returns:
         dict with md5, plate_targets, filament_ids_union, entries_copied
     """
-    import zipfile, hashlib, json, re
+    from copy import copy
+    import hashlib
+    import json
+    import shutil
+    import zipfile
 
-    new_md5 = hashlib.md5(combined_gcode.encode("utf-8")).hexdigest().upper()
     combined_bytes = combined_gcode.encode("utf-8")
+    new_md5 = hashlib.md5(combined_bytes).hexdigest().upper()
+    base = re.fullmatch(r"plate_(\d+)", plate_name, re.I)
+    if base is None:
+        raise ValueError("Invalid base plate")
+    base_id = int(base[1])
+    plate_json = re.compile(r"Metadata/plate_(\d+)\.json", re.I)
+    thumbnail = re.compile(r"(Metadata/(?:plate_no_light|plate|top|pick)_)(\d+)(_small)?\.png", re.I)
+    plate_targets = []
 
-    # 1) Scan source — collect plate numbers and json contents
-    plate_nums = []
-    plate_jsons: dict[int, dict] = {}
-    plate_pattern = re.compile(r"^Metadata/plate_(\d+)\.(gcode|json|png)$")
-    small_png_pattern = re.compile(r"^Metadata/plate_(\d+)_small\.png$")
-    thumb_png_patterns = [re.compile(r"^Metadata/top_(\d+)\.png$"),
-                           re.compile(r"^Metadata/pick_(\d+)\.png$"),
-                           re.compile(r"^Metadata/plate_no_light_(\d+)\.png$")]
+    with zipfile.ZipFile(source_3mf_path) as src:
+        names = src.namelist()
+        plates = dict(sliced_plates(names))
+        if base_id not in plates:
+            raise ValueError(f"Base plate {plate_name} does not contain sliced G-code")
+        lookup = {name.casefold(): name for name in names}
+        targets = set(plates.values())
+        checksums = {(name + ".md5").casefold() for name in targets}
+        base_checksum = lookup.get((plates[base_id] + ".md5").casefold())
+        source_md5 = src.read(base_checksum).decode("utf-8").strip() if base_checksum else None
 
-    with zipfile.ZipFile(source_3mf_path, "r") as src:
-        for name in src.namelist():
-            m = plate_pattern.match(name)
-            if m:
-                num = int(m.group(1))
-                if num not in plate_nums:
-                    plate_nums.append(num)
-                if m.group(2) == "json":
-                    try:
-                        with src.open(name) as f:
-                            plate_jsons[num] = json.loads(f.read())
-                    except Exception:
-                        pass
-        plate_nums.sort()
+        surfaces = ArchiveSurfaces(src)
+        metadata = surfaces.metadata
+        slots = sorted({int(slot) for value in metadata.values() for slot in value.get("filament_ids", [])})
+        base_metadata = metadata.get(base_id, {})
+        unified = dict(base_metadata, filament_ids=slots or [0])
+        with src.open(plates[base_id]) as original_gcode:
+            original_bed = sliced_surface(line.decode("utf-8-sig", errors="replace") for line in original_gcode)
+        surface = surfaces.selected(base_id, original_bed)
+        if surface.wire_id and not surface_name(unified.get("bed_type")):
+            unified["bed_type"] = surface.wire_id
+        json_bytes = json.dumps(unified, separators=(",", ":")).encode()
+        config_updates = surfaces.package_settings(plates, surface) if unify_all_plates else {}
+        thumbs = {}
+        for entry in src.infolist():
+            match = thumbnail.fullmatch(entry.filename)
+            if match:
+                thumbs[match[1].casefold(), int(match[2]), (match[3] or "").casefold()] = entry
 
-    # 2) Compute the union of filament_ids across all plates
-    all_filament_ids: set[int] = set()
-    for num, pj in plate_jsons.items():
-        for fid in pj.get("filament_ids", []):
-            all_filament_ids.add(int(fid))
-    filament_ids_union = sorted(all_filament_ids)
-
-    # 3) Base plate json (source of bbox etc.)
-    base_plate_num = int(plate_name.replace("plate_", "")) if plate_name.startswith("plate_") else 1
-    base_json = plate_jsons.get(base_plate_num, plate_jsons.get(1, {}))
-
-    # 4) Build the unified json (filament_ids = union, everything else from base_json)
-    unified_json = dict(base_json) if base_json else {}
-    unified_json["filament_ids"] = filament_ids_union if filament_ids_union else [0]
-
-    # 5) Write the new .3mf
-    source_md5 = None
-    entries_copied = 0
-    plate_targets: list[str] = []
-
-    with zipfile.ZipFile(source_3mf_path, "r") as src, \
-         zipfile.ZipFile(output_3mf_path, "w", zipfile.ZIP_DEFLATED) as dst:
-
-        # Record the MD5 of the source base plate
-        try:
-            with src.open(f"Metadata/plate_{base_plate_num}.gcode.md5") as f:
-                source_md5 = f.read().decode("utf-8").strip()
-        except KeyError:
-            source_md5 = None
-
-        # Cache the original thumbnail bytes (base plate's)
-        thumbnail_cache: dict[str, bytes] = {}
-        if unify_all_plates:
-            for tmpl in [f"Metadata/plate_{base_plate_num}.png",
-                         f"Metadata/plate_{base_plate_num}_small.png",
-                         f"Metadata/top_{base_plate_num}.png",
-                         f"Metadata/pick_{base_plate_num}.png",
-                         f"Metadata/plate_no_light_{base_plate_num}.png"]:
-                try:
-                    with src.open(tmpl) as f:
-                        thumbnail_cache[tmpl] = f.read()
-                except KeyError:
-                    pass
-
+        # Use the same entry plan for capacity checking and writing. Replacements
+        # can grow thumbnails and JSON as well as the G-code itself.
+        plan = []
+        digest = new_md5.encode("ascii")
         for entry in src.infolist():
             name = entry.filename
-
-            # plate_N.gcode → replaced with the combined G-code (every plate)
-            pm = plate_pattern.match(name)
-            if pm and pm.group(2) == "gcode":
-                dst.writestr(name, combined_bytes)
+            if name in targets:
+                content = combined_bytes
                 plate_targets.append(name)
-                entries_copied += 1
-                continue
-
-            # plate_N.gcode.md5 → recomputed (every plate)
-            if name.endswith(".gcode.md5") and "/plate_" in name:
-                dst.writestr(name, new_md5)
-                entries_copied += 1
-                continue
-
-            # plate_N.json → unified json when unify_all_plates is set (identical for every plate)
-            # (this logic was verified to keep multi-plate timelapse working up to v26)
-            if pm and pm.group(2) == "json" and unify_all_plates:
-                dst.writestr(name, json.dumps(unified_json, separators=(",", ":")))
-                entries_copied += 1
-                continue
-
-            # plate_N thumbnails → unified with the base plate thumbnail when unify_all_plates is set
-            if unify_all_plates:
-                replaced = False
-                for tmpl_pattern in [plate_pattern, small_png_pattern] + thumb_png_patterns:
-                    m = tmpl_pattern.match(name) if hasattr(tmpl_pattern, 'match') else None
-                    if m:
-                        # Replace another plate's thumbnail with the base plate's
-                        # Determine the base path
-                        if name.endswith(".png"):
-                            if "_small.png" in name:
-                                src_name = f"Metadata/plate_{base_plate_num}_small.png"
-                            elif "plate_no_light_" in name:
-                                src_name = f"Metadata/plate_no_light_{base_plate_num}.png"
-                            elif name.startswith("Metadata/top_"):
-                                src_name = f"Metadata/top_{base_plate_num}.png"
-                            elif name.startswith("Metadata/pick_"):
-                                src_name = f"Metadata/pick_{base_plate_num}.png"
-                            elif name.startswith("Metadata/plate_") and "_small" not in name:
-                                src_name = f"Metadata/plate_{base_plate_num}.png"
-                            else:
-                                src_name = None
-                            if src_name and src_name in thumbnail_cache:
-                                dst.writestr(name, thumbnail_cache[src_name])
-                                entries_copied += 1
-                                replaced = True
-                                break
-                if replaced:
-                    continue
-
-            # All other entries are copied verbatim
-            with src.open(entry) as f:
-                dst.writestr(entry, f.read())
-            entries_copied += 1
-
-        # Add an md5 entry if the base plate did not have one
-        if source_md5 is None and plate_targets:
-            first_plate = plate_targets[0].replace(".gcode", ".gcode.md5")
-            dst.writestr(first_plate, new_md5)
-            entries_copied += 1
+            elif name.casefold() in checksums:
+                content = digest
+            elif name in config_updates:
+                content = config_updates[name]
+            elif unify_all_plates and plate_json.fullmatch(name):
+                content = json_bytes
+            else:
+                match = thumbnail.fullmatch(name) if unify_all_plates else None
+                content = thumbs.get((match[1].casefold(), base_id, (match[3] or "").casefold()), entry) if match else entry
+            plan.append((entry, content))
+        for target in plate_targets:
+            if (target + ".md5").casefold() not in lookup:
+                plan.append((target + ".md5", digest))
+            number = int(_PLATE_GCODE.fullmatch(target)[1])
+            if unify_all_plates and base_metadata and number not in metadata:
+                plan.append((target.rsplit(".", 1)[0] + ".json", json_bytes))
+        expanded = sum(len(content) if isinstance(content, bytes) else content.file_size for _, content in plan)
+        if max_uncompressed_bytes is not None and expanded > max_uncompressed_bytes:
+            raise ArchiveSizeLimit("Expanded output exceeds the archive budget")
+        with zipfile.ZipFile(output_3mf_path, "w", zipfile.ZIP_DEFLATED) as dst:
+            for target, content in plan:
+                if isinstance(content, bytes):
+                    name = target if isinstance(target, str) else target.filename
+                    dst.writestr(name, content)
+                else:
+                    with src.open(content) as inp, dst.open(copy(target), "w") as out:
+                        shutil.copyfileobj(inp, out)
+        entries_copied = len(plan)
 
     return {
         "source_md5": source_md5,
         "new_md5": new_md5,
         "plate_target": plate_name,
         "plate_targets": plate_targets,
-        "filament_ids_union": filament_ids_union,
-        "total_plates": len(plate_nums),
+        "filament_ids_union": slots,
+        "total_plates": len(plates),
         "entries_copied": entries_copied,
         "new_gcode_bytes": len(combined_bytes),
         "unified": unify_all_plates,
@@ -1985,7 +2048,39 @@ def repackage_3mf(
 # Z homing and AMS load are preserved
 # ============================================================
 
-def strip_calibration_blocks(start_gcode: str) -> tuple[str, list[str]]:
+def strip_ams_load_blocks(start_gcode: str) -> tuple[str, list[str]]:
+    """Filter the H2S dry-run's material load/prime sequences at their source boundaries."""
+    ranges = (
+        ("material preparation", "===== prepare print temperature and material", "===== prepare print temperature and material", True),
+        ("flushing block", "===== auto extrude cali start", "===== wipe right nozzle start", False),
+        ("flushing block", "===== auto extrude cali end", "===== wipe right nozzle start", False),
+        ("nozzle load line", "===== nozzle load line =", "load line end =", True),
+    )
+    lines = start_gcode.split("\n")
+    output, removed = [], []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        marker = line.strip().lower()
+        for label, first, last, inclusive in ranges:
+            if not marker.startswith(";" + first):
+                continue
+            end = next((j for j in range(i + 1, len(lines))
+                        if lines[j].lstrip().startswith(";") and last in lines[j].lower()), None)
+            if end is not None and not has_plate_check("\n".join(lines[i:end])):
+                removed.append(label)
+                i = end + int(inclusive)
+                break
+        else:
+            command = line.partition(";")[0].strip().upper()
+            if not (re.match(r"^T(?!65535\b)\d+(?:\s|$)|^M62[01](?:\.|\s+S)|^M62[89]\b", command)
+                    or command.startswith("M1002 SET_FILAMENT_TYPE")):
+                output.append(line)
+            i += 1
+    return "\n".join(output), removed
+
+
+def strip_calibration_blocks(start_gcode: str, *, preserve_plate_check: bool = False) -> tuple[str, list[str]]:
     """Strip blocks from a Bambu H2S start_gcode that are safe to skip during a dry-run.
 
     Kept:
@@ -2042,12 +2137,19 @@ def strip_calibration_blocks(start_gcode: str) -> tuple[str, list[str]]:
         re.compile(r"^\s*M500\b"),                   # save settings
     ]
 
+    if not preserve_plate_check:
+        start_gcode = filter_plate_checks(start_gcode, False)
     lines = start_gcode.split("\n")
     output: list[str] = []
     removed: list[str] = []
     i = 0
     while i < len(lines):
         line = lines[i]
+        end = source_check_end(lines, i)
+        if end is not None:
+            output.extend(lines[i:end])
+            i = end
+            continue
         # Detect block start
         matched = None
         for name, start_marker, end_marker in block_markers:
@@ -2057,12 +2159,16 @@ def strip_calibration_blocks(start_gcode: str) -> tuple[str, list[str]]:
 
         if matched:
             name, end_marker = matched
-            output.append(f"; [MINIMAL START] block '{name}' skipped (user option — dry-run)")
-            removed.append(name)
             j = i + 1
             while j < len(lines) and end_marker not in lines[j]:
                 j += 1
-            i = j + 1   # also skip the end_marker line
+            if preserve_plate_check and has_plate_check("\n".join(lines[i:j + 1])):
+                # The camera check needs its original power/drive setup and teardown.
+                output.extend(lines[i:j + 1])
+            else:
+                output.append(f"; [MINIMAL START] block '{name}' skipped (user option — dry-run)")
+                removed.append(name)
+            i = j + 1
             continue
 
         # Individual line filter
@@ -2463,13 +2569,20 @@ _TIME_RE = re.compile(
     re.IGNORECASE
 )
 _M73_RE = re.compile(r"M73 P(\d+) R(\d+)")
-_M73_L_RE = re.compile(r"M73 L(\d+)")
+_M73_L_RE = re.compile(r"^([ \t]*M73[ \t]+L)(\d+)(?=[ \t;\r]|$)", re.M | re.I)
 
 
 def count_layers_in_body(body: str) -> int:
     """Return the largest M73 L<n> value found in the body."""
-    layers = [int(m.group(1)) for m in _M73_L_RE.finditer(body)]
-    return max(layers) if layers else 0
+    return max((int(m[2]) for m in _M73_L_RE.finditer(body)), default=0)
+
+
+def job_layer_count(sections: GcodeSections) -> int:
+    reported = count_layers_in_body(sections.body)
+    declared = re.search(r"^;[ \t]*total layer number:[ \t]*(\d+)", sections.header, re.M | re.I)
+    marked = len(re.findall(r"^;[ \t]*(?:CHANGE_LAYER|LAYER_CHANGE)\b", sections.body, re.M | re.I))
+    return max(reported, int(declared[1]) if declared else 0, marked)
+
 
 
 def parse_estimated_time_seconds(gcode: str) -> Optional[int]:
@@ -2532,13 +2645,9 @@ def rewrite_m73_in_body(body: str, body_idx: int, total_bodies: int,
     Returns:
         The body string with M73 lines rewritten.
     """
+    if layer_offset:
+        body = _M73_L_RE.sub(lambda m: f"{m[1]}{int(m[2]) + layer_offset}", body)
     if total_bodies < 1 or body_time_sec <= 0:
-        # No timing info — still apply the layer offset
-        if layer_offset > 0:
-            def repl_l_only(m: re.Match) -> str:
-                original_l = int(m.group(1))
-                return f"M73 L{original_l + layer_offset}"
-            return _M73_L_RE.sub(repl_l_only, body)
         return body
 
     total_sec = body_time_sec * total_bodies + post_print_sec * max(0, total_bodies - 1)
@@ -2552,13 +2661,8 @@ def rewrite_m73_in_body(body: str, body_idx: int, total_bodies: int,
         new_r = max(0, int(round((total_sec - global_elapsed) / 60)))
         return f"M73 P{new_p} R{new_r}"
 
-    def repl_l(m: re.Match) -> str:
-        original_l = int(m.group(1))
-        return f"M73 L{original_l + layer_offset}"
+    return _M73_RE.sub(repl_pr, body)
 
-    body = _M73_RE.sub(repl_pr, body)
-    body = _M73_L_RE.sub(repl_l, body)
-    return body
 
 
 def make_post_print_m73_marks(body_idx: int, total_bodies: int,

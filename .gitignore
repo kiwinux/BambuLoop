@@ -29,3 +29,6 @@ outputs/
 # Local config
 .env
 .env.local
+
+# Local development notes
+/.dev-notes/

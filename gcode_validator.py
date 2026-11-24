@@ -17,10 +17,9 @@ Supported G-code:
     M82/M83 - Extruder absolute / relative (parsed for E-axis tracking only;
               irrelevant to safety but tokenised)
 
-Soft (printable area) and hard (machine) limits are reported separately.
-- Soft violation: outside the `printable_area` header (or a user-supplied area).
-- Hard violation: outside the physical limit (soft + safety margin)
-  → real risk of collision.
+Ordinary moves use the printable bounds. Only recognised H2S purge paths
+can use the front-edge purge margin. Eject sweeps have their own checked Y
+envelope. Unrecognised out-of-area movement is reported as hard.
 
 Usage:
     python gcode_validator.py <input.3mf | input.gcode>
@@ -37,7 +36,10 @@ import sys
 import zipfile
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Optional
+
+from gcode_processor import sliced_plates
+from validation_paths import known_y_ranges
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -104,6 +106,9 @@ class Report:
     bbox_max: tuple[float, float, float] = (-math.inf, -math.inf, -math.inf)
     soft_violations: list[Violation] = field(default_factory=list)
     hard_violations: list[Violation] = field(default_factory=list)
+    soft_count: int = 0
+    hard_count: int = 0
+    skipped_moves: int = 0
 
     def update_bbox(self, x: float, y: float, z: float) -> None:
         self.bbox_min = (min(self.bbox_min[0], x),
@@ -117,18 +122,19 @@ class Report:
 # ──────────────────────────────────────────────────────────────────────────────
 # 3. Input handling: .3mf (zip) or raw .gcode
 # ──────────────────────────────────────────────────────────────────────────────
+def first_plate(names) -> Optional[str]:
+    plates = sliced_plates(names)
+    return plates[0][1] if plates else None
+
+
 def load_gcode(path: Path) -> tuple[str, str]:
     """Read the file and return (gcode text, display path)."""
     if zipfile.is_zipfile(path):
         with zipfile.ZipFile(path) as zf:
             # Bambu 3mf uses the Metadata/plate_*.gcode layout
-            candidates = [n for n in zf.namelist()
-                          if n.startswith("Metadata/") and n.endswith(".gcode")]
-            if not candidates:
-                raise ValueError(f"{path}: no .gcode entry found inside the 3MF.")
-            # Prefer plate_1
-            candidates.sort()
-            target = candidates[0]
+            target = first_plate(zf.namelist())
+            if target is None:
+                raise ValueError(f"{path}: no sliced plate inside the 3MF.")
             data = zf.read(target).decode("utf-8", errors="replace")
             return data, f"{path.name}!{target}"
     return path.read_text(encoding="utf-8", errors="replace"), str(path)
@@ -169,7 +175,8 @@ def parse_header_bounds(gcode: str) -> Optional[Bounds]:
 # ──────────────────────────────────────────────────────────────────────────────
 # 5. G-code line tokeniser
 # ──────────────────────────────────────────────────────────────────────────────
-_TOKEN_RE = re.compile(r"([A-Za-z])(-?\d+(?:\.\d+)?)")
+_COMMAND_RE = re.compile(r"^(?:N\d+\s*)?([GMT])0*(\d+(?:\.\d+)?)(.*)$", re.I)
+_TOKEN_RE = re.compile(r"([A-Za-z])([+-]?(?:\d+(?:\.\d*)?|\.\d+))")
 
 def parse_line(raw: str) -> Optional[tuple[str, dict[str, float], str]]:
     """
@@ -181,12 +188,15 @@ def parse_line(raw: str) -> Optional[tuple[str, dict[str, float], str]]:
     code = code.strip()
     if not code:
         return None
-    head, *rest = code.split(maxsplit=1)
-    head_u = head.upper()
-    if not head_u or head_u[0] not in ("G", "M", "T"):
+    match = _COMMAND_RE.match(code)
+    if not match:
         return None
-    body = rest[0] if rest else ""
+    head_u = match[1].upper() + match[2]
+    body = match[3].split("*", 1)[0]
     params = {letter.upper(): float(num) for letter, num in _TOKEN_RE.findall(body)}
+    if head_u == "G28":
+        for axis in re.findall(r"[XYZ]", body.upper()):
+            params.setdefault(axis, 0.0)
     return head_u, params, comment.strip()
 
 
@@ -238,32 +248,30 @@ def arc_bbox(x0: float, y0: float, x1: float, y1: float,
 # ──────────────────────────────────────────────────────────────────────────────
 class GcodeSimulator:
     def __init__(self, printable: Bounds, physical: Bounds,
-                 max_violations: int = 200):
+                 max_violations: int = 200, path_limits=None):
         self.printable = printable
         self.physical  = physical
         self.report    = Report(source="", printable=printable, physical=physical)
         self.max_violations = max_violations
+        self.path_limits = path_limits or {}
 
         # Modal state
         self.absolute = True          # G90 is the default
         self.x = self.y = self.z = 0.0
-        self.homed = False            # unknown before G28
+        self.located_axes: set[str] = set()
+        self.work_offsets: dict[str, Optional[float]] = dict.fromkeys("XYZ", 0.0)
+        self.unit_scale = 1.0
+        self.arc_plane = "G17"
 
-        # Per (axis, direction) "currently violating" flags — report only once
-        # per transition into the violating state.
-        # Keys: "X<", "X>", "Y<", "Y>", "Z<", "Z>"
-        self._oob: dict[str, bool] = {
-            "X<": False, "X>": False,
-            "Y<": False, "Y>": False,
-            "Z<": False, "Z>": False,
-        }
+        # A warning and a hard violation on the same side are different transitions.
+        self._oob: dict[str, str] = {}
 
     # ── Violation check (per-axis [min, max] interval) ─────────────────────
     def _check_extents(self,
                        x_lo: float, x_hi: float,
                        y_lo: float, y_hi: float,
                        z_lo: float, z_hi: float,
-                       line_no: int, command: str, note: str = "") -> None:
+                       line_no: int, command: str, note: str = "", *, incomplete: bool = False) -> None:
         """
         Take the [min, max] interval swept by a single command and check it.
         G0/G1 only checks the endpoint (so lo == hi); G2/G3 passes the arc's
@@ -274,64 +282,49 @@ class GcodeSimulator:
         returns inside the bounds (so a later violation in the same slot can
         be reported again).
         """
-        if not self.homed:
-            return
-        # Update the overall motion bounding box
-        self.report.update_bbox(x_lo, y_lo, z_lo)
-        self.report.update_bbox(x_hi, y_hi, z_hi)
+        if incomplete or len(self.located_axes) < 3:
+            self.report.skipped_moves += 1
+        if len(self.located_axes) == 3:
+            self.report.update_bbox(x_lo, y_lo, z_lo)
+            self.report.update_bbox(x_hi, y_hi, z_hi)
 
-        axis_specs = [
-            ("X", x_lo, x_hi, self.printable.x_min, self.printable.x_max,
-                                self.physical.x_min,  self.physical.x_max),
-            ("Y", y_lo, y_hi, self.printable.y_min, self.printable.y_max,
-                                self.physical.y_min,  self.physical.y_max),
-            ("Z", z_lo, z_hi, self.printable.z_min, self.printable.z_max,
-                                self.physical.z_min,  self.physical.z_max),
-        ]
+        allowed = self.path_limits.get(line_no)
+        if allowed and (self.unit_scale != 1 or self.arc_plane != "G17"
+                        or any(offset != 0 for offset in self.work_offsets.values())):
+            allowed = None
+        p = self.printable
+        y_min, y_max = (allowed.low, allowed.high) if allowed else (p.y_min, p.y_max)
+        intervals = (("X", x_lo, x_hi, p.x_min, p.x_max, p.x_min, p.x_max),
+                     ("Y", y_lo, y_hi, p.y_min, p.y_max, y_min, y_max),
+                     ("Z", z_lo, z_hi, p.z_min, p.z_max, p.z_min, p.z_max))
+        changes = {"soft": [], "hard": []}
+        for axis, low, high, p_min, p_max, limit_min, limit_max in intervals:
+            if axis not in self.located_axes:
+                continue
+            for direction, value, outside, beyond, limit, edge in (
+                ("<", low, low < p_min, low < limit_min, limit_min, p_min),
+                (">", high, high > p_max, high > limit_max, limit_max, p_max),
+            ):
+                slot = axis + direction
+                severity = "hard" if beyond else "soft" if outside else ""
+                if severity != self._oob.get(slot, ""):
+                    self._oob[slot] = severity
+                    if severity:
+                        boundary = limit if beyond else edge
+                        changes[severity].append(f"{axis}={value:.3f} {direction} {boundary}")
 
-        new_hard: list[str] = []
-        new_soft: list[str] = []
-
-        for name, lo, hi, p_lo, p_hi, h_lo, h_hi in axis_specs:
-            # ── Below (<) violation ────────────────────────────
-            below_hard = lo < h_lo
-            below_soft = lo < p_lo and not below_hard   # if hard fires, soft is absorbed
-            slot = f"{name}<"
-            if below_hard:
-                if not self._oob[slot]:
-                    new_hard.append(f"{name}={lo:.3f} < {h_lo}")
-                    self._oob[slot] = True
-            elif below_soft:
-                if not self._oob[slot]:
-                    new_soft.append(f"{name}={lo:.3f} < {p_lo}")
-                    self._oob[slot] = True
+        context = ", ".join(filter(None, [allowed.operation if allowed else "", note]))
+        for kind, axes in changes.items():
+            if not axes:
+                continue
+            if kind == "hard":
+                self.report.hard_count += 1
+                details = self.report.hard_violations
             else:
-                self._oob[slot] = False     # returned to safe range
-
-            # ── Above (>) violation ──────────────────────────────
-            above_hard = hi > h_hi
-            above_soft = hi > p_hi and not above_hard
-            slot = f"{name}>"
-            if above_hard:
-                if not self._oob[slot]:
-                    new_hard.append(f"{name}={hi:.3f} > {h_hi}")
-                    self._oob[slot] = True
-            elif above_soft:
-                if not self._oob[slot]:
-                    new_soft.append(f"{name}={hi:.3f} > {p_hi}")
-                    self._oob[slot] = True
-            else:
-                self._oob[slot] = False
-
-        # If one command triggers both hard and soft, record them as separate entries
-        if new_hard and len(self.report.hard_violations) < self.max_violations:
-            self.report.hard_violations.append(
-                Violation(line_no, command, "hard", new_hard,
-                          (x_hi, y_hi, z_hi), note))
-        if new_soft and len(self.report.soft_violations) < self.max_violations:
-            self.report.soft_violations.append(
-                Violation(line_no, command, "soft", new_soft,
-                          (x_hi, y_hi, z_hi), note))
+                self.report.soft_count += 1
+                details = self.report.soft_violations
+            if len(details) < self.max_violations:
+                details.append(Violation(line_no, command, kind, axes, (x_hi, y_hi, z_hi), context))
 
     # ── Per-line dispatch ───────────────────────────────────────────────────
     def feed(self, line_no: int, raw: str) -> None:
@@ -339,6 +332,15 @@ class GcodeSimulator:
         if not parsed:
             return
         cmd, p, _ = parsed
+        if cmd in ("G20", "G21"):
+            self.unit_scale = 25.4 if cmd == "G20" else 1.0
+            return
+        if cmd in ("G17", "G18", "G19"):
+            self.arc_plane = cmd
+            return
+        if self.unit_scale != 1.0:
+            for axis in p.keys() & {"X", "Y", "Z", "I", "J", "K", "R"}:
+                p[axis] *= self.unit_scale
 
         # Mode changes ────────────────────────────────────────
         if cmd == "G90":
@@ -348,10 +350,10 @@ class GcodeSimulator:
             self.absolute = False
             return
         if cmd == "G92":
-            # Reset current position. No physical motion.
-            if "X" in p: self.x = p["X"]
-            if "Y" in p: self.y = p["Y"]
-            if "Z" in p: self.z = p["Z"]
+            # Relabelling a position neither moves nor locates the carriage.
+            for axis in p.keys() & {"X", "Y", "Z"}:
+                position = getattr(self, axis.lower())
+                self.work_offsets[axis] = position - p[axis] if axis in self.located_axes else None
             return
         if cmd == "G28":
             # Homing. If specific X/Y/Z keys are given, home only those axes;
@@ -362,21 +364,27 @@ class GcodeSimulator:
             if "X" in axes: self.x = 0.0
             if "Y" in axes: self.y = 0.0
             if "Z" in axes: self.z = 0.0
-            self.homed = True
-            # Homing clears every violation slot
-            for k in self._oob:
-                self._oob[k] = False
+            self.located_axes.update(axes)
+            for axis in axes:
+                self.work_offsets[axis] = 0.0
+                self._oob.pop(axis + "<", None)
+                self._oob.pop(axis + ">", None)
             return
 
         # Movement commands ──────────────────────────────────────
         if cmd in ("G0", "G1"):
+            if not ("X" in p or "Y" in p or "Z" in p):
+                return
             self.report.moves_g0g1 += 1
             self.report.total_moves += 1
+            incomplete = len(self.located_axes) < 3
+            if self.absolute:
+                self.located_axes.update(a for a in p.keys() & {"X", "Y", "Z"} if self.work_offsets[a] is not None)
             nx, ny, nz = self._next_xyz(p)
             # Linear move: only check the endpoint (the start point was
             # already checked by the previous command).
             self._check_extents(nx, nx, ny, ny, nz, nz,
-                                line_no, raw.strip())
+                                line_no, raw.strip(), incomplete=incomplete)
             self.x, self.y, self.z = nx, ny, nz
             return
 
@@ -385,55 +393,82 @@ class GcodeSimulator:
             self.report.total_moves += 1
             nx, ny, nz = self._next_xyz(p)
 
-            # Determine the centre (prefer I/J; without them, check the endpoint only)
-            if "I" in p or "J" in p:
-                cx = self.x + p.get("I", 0.0)
-                cy = self.y + p.get("J", 0.0)
-                ccw = (cmd == "G3")
-                xmn, xmx, ymn, ymx = arc_bbox(self.x, self.y, nx, ny,
-                                              cx, cy, ccw)
-                # Z may interpolate linearly during G2/G3 (XY arc + Z move)
-                z_lo, z_hi = min(self.z, nz), max(self.z, nz)
-                self._check_extents(xmn, xmx, ymn, ymx, z_lo, z_hi,
-                                    line_no, raw.strip(), note="G2/G3 arc region")
+            xy_known = self.arc_plane == "G17" and {"X", "Y"}.issubset(self.located_axes)
+            incomplete = len(self.located_axes) < 3
+            if self.absolute:
+                self.located_axes.update(a for a in p.keys() & {"X", "Y", "Z"} if self.work_offsets[a] is not None)
+            ccw = cmd == "G3"
+            center = None
+            if xy_known and ("I" in p or "J" in p):
+                center = self.x + p.get("I", 0.0), self.y + p.get("J", 0.0)
+            elif xy_known and "R" in p:
+                dx, dy = nx - self.x, ny - self.y
+                chord = math.hypot(dx, dy)
+                radius = p["R"]
+                if 0 < chord <= 2 * abs(radius):
+                    offset = math.sqrt(max(0.0, radius * radius - chord * chord / 4)) / chord
+                    if ccw != (radius > 0):
+                        offset = -offset
+                    center = (self.x + nx) / 2 - dy * offset, (self.y + ny) / 2 + dx * offset
+            if center is None:
+                self._check_extents(nx, nx, ny, ny, nz, nz, line_no, raw.strip(),
+                                    note="Unresolved arc", incomplete=True)
             else:
-                # R-form — the centre is ambiguous, so only check the endpoint
-                self._check_extents(nx, nx, ny, ny, nz, nz,
-                                    line_no, raw.strip(),
-                                    note="G2/G3 R-form (mid-arc check skipped)")
+                cx, cy = center
+                xmn, xmx, ymn, ymx = arc_bbox(self.x, self.y, nx, ny, cx, cy, ccw)
+                if p.get("P", 1) > 1:
+                    radius = math.hypot(self.x - cx, self.y - cy)
+                    xmn, xmx, ymn, ymx = cx - radius, cx + radius, cy - radius, cy + radius
+                self._check_extents(xmn, xmx, ymn, ymx, min(self.z, nz), max(self.z, nz),
+                                    line_no, raw.strip(), note="G2/G3 arc", incomplete=incomplete)
             self.x, self.y, self.z = nx, ny, nz
             return
 
     def _next_xyz(self, p: dict[str, float]) -> tuple[float, float, float]:
-        if self.absolute:
-            return (p.get("X", self.x), p.get("Y", self.y), p.get("Z", self.z))
-        return (self.x + p.get("X", 0.0),
-                self.y + p.get("Y", 0.0),
-                self.z + p.get("Z", 0.0))
+        coordinates = []
+        for axis, position in zip("XYZ", (self.x, self.y, self.z)):
+            if axis in p:
+                base = self.work_offsets[axis] if self.absolute else position
+                if base is not None:
+                    position = base + p[axis]
+            coordinates.append(position)
+        return tuple(coordinates)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 8. Entry points
 # ──────────────────────────────────────────────────────────────────────────────
+def _simulate(text: str, source: str, margin: float, max_violations: int):
+    if not math.isfinite(margin) or margin < 0:
+        raise ValueError("Purge margin must be finite and non-negative.")
+    supplied = parse_header_bounds(text)
+    machine = Bounds(**H2S_DEFAULT_PRINTABLE)
+    bounds = machine
+    if supplied is not None:
+        bounds = Bounds(max(supplied.x_min, machine.x_min), min(supplied.x_max, machine.x_max),
+                        max(supplied.y_min, machine.y_min), min(supplied.y_max, machine.y_max),
+                        max(supplied.z_min, machine.z_min), min(supplied.z_max, machine.z_max))
+        if not (bounds.x_min < bounds.x_max and bounds.y_min < bounds.y_max and bounds.z_min < bounds.z_max):
+            raise ValueError("The printable area does not intersect the H2S build volume.")
+    lines = text.splitlines()
+    limits = known_y_ranges(lines, bounds, margin)
+    y_min = min((v.low for v in limits.values()), default=bounds.y_min)
+    y_max = max((v.high for v in limits.values()), default=bounds.y_max)
+    envelope = Bounds(bounds.x_min, bounds.x_max, min(y_min, bounds.y_min),
+                      max(y_max, bounds.y_max), bounds.z_min, bounds.z_max)
+    sim = GcodeSimulator(bounds, envelope, max_violations, limits)
+    for i, line in enumerate(lines, 1):
+        sim.feed(i, line)
+    sim.report.source = source
+    sim.report.total_lines = len(lines)
+    return sim.report, supplied is not None
+
+
 def run(path: Path, margin: float, max_viol: int) -> Report:
     gcode, source = load_gcode(path)
-    bounds = parse_header_bounds(gcode)
-    if bounds is None:
-        bounds = Bounds(**H2S_DEFAULT_PRINTABLE)
-        header_note = "(no header found — using H2S defaults)"
-    else:
-        header_note = "(auto-detected from header)"
-
-    physical = bounds.expanded(margin)
-    sim = GcodeSimulator(printable=bounds, physical=physical,
-                         max_violations=max_viol)
-    sim.report.source = source
-
-    for i, line in enumerate(gcode.splitlines(), start=1):
-        sim.feed(i, line)
-    sim.report.total_lines = i
-    sim.report._header_note = header_note    # type: ignore[attr-defined]
-    return sim.report
+    report, from_header = _simulate(gcode, source, margin, max_viol)
+    report._header_note = "(from header)" if from_header else "(H2S defaults)"
+    return report
 
 
 def format_report(r: Report) -> str:
@@ -452,7 +487,7 @@ def format_report(r: Report) -> str:
     out.append(f"  Y: {r.printable.y_min:7.2f} ~ {r.printable.y_max:7.2f} mm")
     out.append(f"  Z: {r.printable.z_min:7.2f} ~ {r.printable.z_max:7.2f} mm")
     out.append("")
-    out.append(f"[Physical limit] (printable + safety margin)")
+    out.append(f"[Envelope of checked paths] (allowances apply only to recognised moves)")
     out.append(f"  X: {r.physical.x_min:7.2f} ~ {r.physical.x_max:7.2f} mm")
     out.append(f"  Y: {r.physical.y_min:7.2f} ~ {r.physical.y_max:7.2f} mm")
     out.append(f"  Z: {r.physical.z_min:7.2f} ~ {r.physical.z_max:7.2f} mm")
@@ -465,7 +500,7 @@ def format_report(r: Report) -> str:
         out.append("")
 
     # ── Violation report ─────────────────────────────────────────
-    out.append(f"[Hard violations] (collision risk): {len(r.hard_violations)} item(s)")
+    out.append(f"[Hard violations] (collision risk): {r.hard_count} item(s)")
     for v in r.hard_violations[:20]:
         out.append(f"  L{v.line_no:>6}  {v.command[:60]:60}  ⛔ "
                    + ", ".join(v.axes)
@@ -474,8 +509,8 @@ def format_report(r: Report) -> str:
         out.append(f"  ... (+{len(r.hard_violations) - 20} more)")
     out.append("")
 
-    out.append(f"[Soft violations] (outside printable area, typically normal wipe/purge): "
-               f"{len(r.soft_violations)} item(s)")
+    out.append(f"[Soft violations] (recognised off-bed paths): "
+               f"{r.soft_count} item(s)")
     for v in r.soft_violations[:20]:
         out.append(f"  L{v.line_no:>6}  {v.command[:60]:60}  ⚠️  "
                    + ", ".join(v.axes)
@@ -485,13 +520,14 @@ def format_report(r: Report) -> str:
     out.append("")
 
     # ── Overall verdict ───────────────────────────────────────────
-    if r.hard_violations:
-        verdict = "🛑 Unsafe: at least one move exceeds the physical limit."
-    elif r.soft_violations:
-        verdict = ("✅ Safe: moves exist outside the printable area but stay within the "
-                   "physical limit (likely normal wipe/purge).")
+    if r.hard_count:
+        verdict = "🛑 Unsafe: at least one move is outside its permitted path."
+    elif r.skipped_moves or not r.total_moves:
+        verdict = f"Unverified: {r.skipped_moves} incomplete moves or no motion."
+    elif r.soft_count:
+        verdict = "Recognised purge or eject moves outside the printable area."
     else:
-        verdict = "✅ Safe: every move stays inside the printable area."
+        verdict = "Checked moves stay inside the printable area."
     out.append(verdict)
     out.append("=" * 72)
     return "\n".join(out)
@@ -503,10 +539,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("input", type=Path,
                     help="Input .3mf or .gcode file")
     ap.add_argument("--margin", type=float, default=20.0,
-                    help="Safety margin allowed outside the printable area [mm] "
-                         "(beyond this is a hard violation). Defaults to 20mm to "
-                         "absorb Bambu's normal wipe/purge moves, which can extend "
-                         "~16mm past the printable area.")
+                    help="Front-edge margin for recognised H2S purge paths [mm], default 20.")
     ap.add_argument("--max-violations", type=int, default=200,
                     help="Maximum number of violations to retain (default 200)")
     ap.add_argument("--json", type=Path, default=None,
@@ -527,7 +560,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\nJSON saved: {args.json}")
 
     # Exit code: 1 if any hard violation, 0 otherwise
-    return 1 if report.hard_violations else 0
+    if report.hard_count:
+        return 1
+    return 2 if report.skipped_moves or not report.total_moves else 0
 
 
 if __name__ == "__main__":
@@ -544,13 +579,13 @@ def validate_gcode_text(gcode_text: str, margin: float = 20.0,
 
     Args:
         gcode_text: G-code string to validate
-        margin: Safety margin allowed outside the printable area (mm)
+        margin: Front-edge Y margin for recognised H2S purge moves (mm)
         max_violations: Maximum number of violations to retain
         source_name: Source label used in the report
 
     Returns:
         {
-            'verdict': 'safe' | 'soft_only' | 'unsafe',
+            'verdict': 'safe' | 'soft_only' | 'unsafe' | 'unverified',
             'verdict_label': {'ko': '...', 'en': '...'},  # i18n label for UI
             'printable': {x_min, x_max, y_min, y_max, z_min, z_max},
             'physical': {...},
@@ -567,32 +602,19 @@ def validate_gcode_text(gcode_text: str, margin: float = 20.0,
             'header_note': {'ko': '...', 'en': '...'}  # i18n source of the bounds
         }
     """
-    bounds = parse_header_bounds(gcode_text)
-    if bounds is None:
-        bounds = Bounds(**H2S_DEFAULT_PRINTABLE)
-        from i18n_helper import t_dict
-        header_note = t_dict("validator.header.no_header")
-    else:
-        from i18n_helper import t_dict
-        header_note = t_dict("validator.header.auto_detected")
-
-    physical = bounds.expanded(margin)
-    sim = GcodeSimulator(printable=bounds, physical=physical, max_violations=max_violations)
-    sim.report.source = source_name
-
-    last_i = 0
-    for i, line in enumerate(gcode_text.splitlines(), start=1):
-        sim.feed(i, line)
-        last_i = i
-    sim.report.total_lines = last_i
-
-    r = sim.report
+    from i18n_helper import t_dict
+    r, from_header = _simulate(gcode_text, source_name, margin, max_violations)
+    bounds, physical = r.printable, r.physical
+    header_note = t_dict("validator.header.auto_detected" if from_header else "validator.header.no_header")
 
     # Verdict
-    if r.hard_violations:
+    if r.hard_count:
         verdict = 'unsafe'
         verdict_label = t_dict("validator.verdict.unsafe")
-    elif r.soft_violations:
+    elif r.skipped_moves or not r.total_moves:
+        verdict = 'unverified'
+        verdict_label = t_dict("validator.verdict.unverified")
+    elif r.soft_count:
         verdict = 'soft_only'
         verdict_label = t_dict("validator.verdict.soft_only")
     else:
@@ -616,6 +638,8 @@ def validate_gcode_text(gcode_text: str, margin: float = 20.0,
         'verdict_label': verdict_label,
         'header_note': header_note,
         'margin_mm': margin,
+        'skipped_moves': r.skipped_moves,
+        'source': source_name,
         'printable': _b(bounds),
         'physical': _b(physical),
         'bbox_min': bbox_min,
@@ -624,8 +648,8 @@ def validate_gcode_text(gcode_text: str, margin: float = 20.0,
         'total_moves': r.total_moves,
         'moves_g0g1': r.moves_g0g1,
         'moves_arc': r.moves_arc,
-        'soft_count': len(r.soft_violations),
-        'hard_count': len(r.hard_violations),
+        'soft_count': r.soft_count,
+        'hard_count': r.hard_count,
         'soft_violations': [_v(v) for v in r.soft_violations],
         'hard_violations': [_v(v) for v in r.hard_violations],
     }

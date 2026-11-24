@@ -22,7 +22,7 @@ the proposed solution second.
 
 1. Fork the repo and create a feature branch (`git checkout -b feat/my-change`).
 2. Make your changes.
-3. Run the smoke test: `python test_smoke.py` should print all green.
+3. Run `python -m unittest discover` and `python test_smoke.py`. After changing the Python engine or translations, refresh the checked-in Pages assets with `python tools/build_pages.py`. Check them with `python tools/build_pages.py --check`. Browser users only need the resulting static files.
 4. If you change G-code generation, also test the **dry-run** mode in the web
    UI on at least one real `.gcode` file from Bambu Studio.
 5. Open a pull request describing the change.
@@ -85,3 +85,9 @@ fun.
 
 By contributing, you agree that your contributions will be licensed under the
 same MIT license that covers the project.
+
+## Static site tests
+
+The source UI lives in `docs/index.html` and `docs/assets/`. The Flask API and the browser worker share `job_service.py` and the G-code modules. `node tests/pages_smoke.mjs` serves the Pages subpath on loopback and checks real downloads in a disposable Chromium profile. Use Node 22.15 or newer and set `BAMBULOOP_CHROME` to a Chromium executable if it is outside the standard locations. Runtime provenance and licenses are in `docs/runtime/`.
+
+For an optional native comparison, set `BAMBULOOP_REFERENCE_PYTHON` to a local Python executable. Run `node tests/pages_smoke.mjs --sample path/to/sliced.gcode.3mf` with a multi-plate input to also check an archived file. The test compares all archive members, validates each plate checksum and normalizes the generated timestamp.

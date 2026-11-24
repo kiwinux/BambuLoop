@@ -1,0 +1,3 @@
+# Keep generated Pages text byte-identical to the build output on Windows.
+docs/assets/presets.json text eol=lf
+docs/LICENSE.txt text eol=lf

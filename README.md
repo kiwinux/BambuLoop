@@ -1,6 +1,8 @@
 # BambuLoop
 > 한국어 README: [README.ko.md](README.ko.md)
 
+**[Open BambuLoop in your browser](https://kiwinux.github.io/BambuLoop/)**
+
 ![Screenshot Image](https://raw.githubusercontent.com/kiwinux/BambuLoop/refs/heads/main/images/screen.png)
 
 <details>
@@ -54,29 +56,21 @@ cooling temperatures and stronger eject force.
 
 ---
 
-## Installation
+## Run in a browser
 
-Requires **Python 3.10+**.
+BambuLoop opens sliced files, generates G-code and validates downloads in a Web Worker. The ready-to-serve GitHub Pages files are in `docs/`. The first processing operation loads about 13 MiB of bundled WebAssembly and Python runtime assets from the same site. Users do not need a Python installation, Flask or an account. Files stay in the tab; closing it clears the working files.
 
-```bash
-git clone https://github.com/kiwinux/BambuLoop.git
-cd BambuLoop
-pip install -r requirements.txt
-```
+For a local preview, run `node tools/preview.mjs` from the repository and open [BambuLoop on localhost](http://127.0.0.1:4173/BambuLoop/). Any static HTTP(S) server can serve `docs/`. Its runtime, engine and presets must remain in their supplied subdirectories. The tab uses a 200 MiB budget for stored inputs (including extracted plates), an expanded archive and the estimated combined G-code. If only the expanded output 3MF exceeds the budget, the combined G-code is offered for download. Available device memory also affects large jobs.
 
----
+The optional local HTTP API uses Python 3.10+. Install `requirements.txt` and run `python app.py` to serve the same UI and the existing `/api/` endpoints on loopback port 5000.
+
+### Publish on GitHub Pages
+
+On a push to `main`, the **Deploy BambuLoop to GitHub Pages** workflow rebuilds the shared engine bundle and publishes only `docs/`.
 
 ## Quick start
 
-### 1. Run the web UI server
-
-```bash
-python app.py
-```
-
-Open <http://localhost:5000> in your browser.
-
-### 2. Upload G-code
+### 1. Open the site and select sliced files
 
 Slice in **Bambu Studio** and export via:
 
@@ -85,30 +79,29 @@ Slice in **Bambu Studio** and export via:
 Drag the `.gcode.3mf` file into the BambuLoop browser UI. You can drop
 multiple files at once.
 
-### 3. Set repeat count
+### 2. Set repeat count
 
 Set how many times each model should be printed.
 
-### 4. Pick eject method
+### 3. Pick eject method
 
 The default `edge_to_center` works well in most cases. For short prints
 __**(only when under 42 mm tall)**__, try `bottom_only` or
 `edge_to_center_bottom` — these concentrate the eject force closer to
 the bed.
 
-### 5. (Optional) Run a dry-run test first
+### 4. Generate a dry-run file
 
 The Dry-Run test generates a G-code that runs only the automation
 sequence (cool → eject → reheat → reset) without actually printing.
 
-Use this to verify the sweep motion is safe.
+The validation panel reports the checked moves and any out-of-path motion.
 
-### 6. Generate and send to printer
+### 5. Generate and download
 
 Click **Generate**. Download the resulting `.gcode.3mf` (or `.gcode`).
 
-Send it to the printer the way you normally would — open it in Bambu
-Studio and "Send to printer", or print from USB.
+The browser saves a file. You can inspect the downloaded result in Bambu Studio.
 
 ---
 
@@ -148,9 +141,10 @@ Settings you'll commonly tweak:
   compatibility check, per-command G-code simulation). Even so, **always
   run a dry-run on an empty bed first** whenever you use a new
   configuration.
-- The H2S has a **42 mm head-rail clearance limit** — prints taller than
-  this cannot use "bottom-only" eject modes. BambuLoop blocks this
-  automatically.
+- **Check the source build plate on the first print** is enabled by default. The first job’s selected 3MF plate supplies the build surface and its sliced startup check. An existing check is kept once at startup. Clearing the box omits it from combined and dry-run files. A source without a check adds none. The printer’s own detection flag still applies.
+- The generator and dry-run use the same eject clearance check. Bottom-fixed sweeps require a print under **42 mm**. For stepped sweeps the drop per step must be at most 42 mm. Files with no usable print height can still be combined with ejection disabled.
+- The default **20 mm purge margin** applies only to recognised H2S nozzle priming and purge-bin exit paths. Enter 0 to check those paths against the bed edge. Ordinary print moves use the printable area. Eject sweeps are checked separately against the generated path and the project's reference Y range of −5 to 335 mm. These bounds describe the software checks.
+- Layer numbers continue across models and copies. Rechecking a generated 3MF follows the first job’s source plate number and displays the inspected entry.
 - Don't leave the printer unattended during your first repeat-print
   session. Watch at least one full cycle before stepping away.
 - If a print fails to release, the next eject sweep will collide with it.

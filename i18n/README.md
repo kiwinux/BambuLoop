@@ -1,6 +1,6 @@
 # BambuLoop translations
 
-This directory holds locale JSON files for the BambuLoop backend.
+This directory holds locale JSON files for the BambuLoop processing engine (local HTTP API and browser worker).
 
 ## File format
 
@@ -35,7 +35,7 @@ names in your translation:
 1. Copy `en.json` to `<lang>.json` (using the language's ISO 639-1 code).
 2. Translate each value, leaving the keys and placeholders intact.
 3. (Optional) Add the language code to the frontend language selector.
-4. Open a pull request.
+4. Run `python tools/build_pages.py` to include the locale in the static site.
 
 `en.json` is the source of truth — every key must exist there. Keys missing
 from a translation automatically fall back to the English value at runtime.
